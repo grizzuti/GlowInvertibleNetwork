@@ -1,0 +1,6 @@
+*.png
+*.json
+*.jld
+/documents
+/data
+/.vscode

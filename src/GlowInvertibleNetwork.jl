@@ -1,0 +1,4 @@
+module GlowInvertibleNetwork
+
+
+end # module

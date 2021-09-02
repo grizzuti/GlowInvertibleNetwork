@@ -1,0 +1,10 @@
+name = "GlowInvertibleNetwork"
+uuid = "9487948d-2ffa-4c4c-9bcc-0b230cf790ec"
+authors = ["Gabrio Rizzuti <rizzuti.gabrio@gmail.com>"]
+version = "0.1.0"
+
+[deps]
+CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"
+Flux = "587475ba-b771-5e3f-ad9e-33799f191a9c"
+InvertibleNetworks = "b7115f24-5f92-4794-81e8-23b0ddb121d3"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
