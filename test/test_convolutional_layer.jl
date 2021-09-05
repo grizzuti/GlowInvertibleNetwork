@@ -20,5 +20,5 @@ Y = L.forward(X)
 
 # Gradient test
 loss(X::AbstractArray{T,4}) where T = T(0.5)*norm(X)^2, X
-gradient_test_input(L, loss, X; step=T(1e-6), rtol=T(1e-5))
-gradient_test_pars(L, loss, X; step=T(1e-6), rtol=T(1e-5))
+gradient_test_input(L, loss, X; step=T(1e-6), rtol=T(1e-5), invnet=false)
+gradient_test_pars(L, loss, X; step=T(1e-6), rtol=T(1e-5), invnet=false)

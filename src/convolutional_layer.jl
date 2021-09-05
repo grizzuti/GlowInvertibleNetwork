@@ -18,7 +18,11 @@ function ConvolutionalLayer(nc_in, nc_out; k=3, p=1, s=1, bias::Bool=true, weigh
 
 end
 
-forward(X::AbstractArray{T,4}, CL::ConvolutionalLayer{T}) where T = conv(X, CL.W.data; stride=CL.stride, pad=CL.padding).+CL.b.data
+function forward(X::AbstractArray{T,4}, CL::ConvolutionalLayer{T}) where T
+    Y = conv(X, CL.W.data; stride=CL.stride, pad=CL.padding)
+    CL.b !== nothing && (Y .+= CL.b.data)
+    return Y
+end
 
 function backward(ΔY::AbstractArray{T,4}, X::AbstractArray{T,4}, CL::ConvolutionalLayer{T}) where T
 
