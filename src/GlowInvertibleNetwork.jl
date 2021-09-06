@@ -10,5 +10,7 @@ include("./convolutional_layer0.jl")
 include("./actnorm_par.jl")
 include("./convolutional_block.jl")
 include("./invertible_layer_conv1x1gen.jl")
+include("./invertible_layer_claffine.jl")
+# include("./invertible_layer_glow.jl")
 
 end

@@ -44,5 +44,5 @@ function get_params(CL::ConvolutionalLayer)
     CL.b !== nothing ? (return [CL.W, CL.b]) : (return [CL.W])
 end
 
-gpu(CL::ConvolutionalLayer) = ConvolutionalLayer(gpu(CL.W), gpu(CL.b), CL.stride, CL.padding)
-cpu(CL::ConvolutionalLayer) = ConvolutionalLayer(cpu(CL.W), cpu(CL.b), CL.stride, CL.padding)
+gpu(CL::ConvolutionalLayer{T}) where T = ConvolutionalLayer{T}(gpu(CL.W), gpu(CL.b), CL.stride, CL.padding)
+cpu(CL::ConvolutionalLayer{T}) where T = ConvolutionalLayer{T}(cpu(CL.W), cpu(CL.b), CL.stride, CL.padding)

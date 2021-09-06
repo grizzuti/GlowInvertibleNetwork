@@ -109,37 +109,6 @@ function backward_inv(ΔX::AbstractArray{T, N}, X::AbstractArray{T, N}, AN::ActN
     end
 end
 
-## Jacobian-related functions
-# 2-£D
-function jacobian(ΔX::AbstractArray{T, N}, Δθ::AbstractArray{Parameter, 1}, X::AbstractArray{T, N}, AN::ActNormPar{T}; logdet=nothing) where {N,T}
-    isnothing(logdet) ? logdet = (AN.logdet && ~AN.is_reversed) : logdet = logdet
-    inds = [i!=(N-1) ? 1 : (:) for i=1:N]
-    nn = size(ΔX)[1:N-2]
-    Δs = Δθ[1].data
-    Δb = Δθ[2].data
-
-    # Forward evaluation
-    logdet ? (Y, lgdet) = forward(X, AN; logdet=logdet) : Y = forward(X, AN; logdet=logdet)
-
-    # Jacobian evaluation
-    ΔY = ΔX .* reshape(AN.s.data, inds...) .+ X .* reshape(Δs, inds...) .+ reshape(Δb, inds...)
-
-    # Hessian evaluation of logdet terms
-    if logdet
-        nx, ny, _, _ = size(X)
-        HlogΔθ = [Parameter(logdet_hessian(nn..., AN.s).*Δs), Parameter(zeros(Float32, size(Δb)))]
-        return ΔY, Y, lgdet, HlogΔθ
-    else
-        return ΔY, Y
-    end
-end
-
-# 2D/3D
-function adjointJacobian(ΔY::AbstractArray{T, N}, Y::AbstractArray{T, N}, AN::ActNormPar{T}) where {N,T}
-    return backward(ΔY, Y, AN; set_grad=false)
-end
-
-
 ## Logdet utils
 # 2D Logdet
 logdet_forward(nx, ny, s) = nx*ny*sum(log.(abs.(s.data)))
@@ -173,8 +142,5 @@ end
 # Get parameters
 get_params(AN::ActNormPar) = [AN.s, AN.b]
 
-# Reverse
-function tag_as_reversed!(AN::ActNormPar, tag::Bool)
-    AN.is_reversed = tag
-    return AN
-end
+gpu(AN::ActNormPar{T}) where T = ActNormPar{T}(AN.nc, gpu(AN.s), gpu(AN.b), AN.logdet, AN.is_reversed)
+cpu(AN::ActNormPar{T}) where T = ActNormPar{T}(AN.nc, cpu(AN.s), cpu(AN.b), AN.logdet, AN.is_reversed)

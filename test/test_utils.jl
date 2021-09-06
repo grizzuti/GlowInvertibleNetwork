@@ -58,8 +58,8 @@ end
 
 function cpu_vs_gpu_test(G, input_shape; rtol::Float32=1f-5)
 
-    Ggpu = G |> gpu
-    Gcpu = G |> cpu
+    Ggpu = deepcopy(gpu(G))
+    Gcpu = deepcopy(cpu(G))
 
     # Forward
     Xcpu = randn(Float32, input_shape)
@@ -80,10 +80,13 @@ function cpu_vs_gpu_test(G, input_shape; rtol::Float32=1f-5)
     Ygpu = Ycpu |> gpu
     ΔYgpu = ΔYcpu |> gpu
     ΔXgpu, Xgpu = Ggpu.backward(ΔYgpu, Ygpu)
+    Δθgpu = deepcopy(get_grads(Ggpu)) |> cpu
     ΔXgpu = ΔXgpu |> cpu
     Xgpu = Xgpu |> cpu
     ΔXcpu, Xcpu = Gcpu.backward(ΔYcpu, Ycpu)
+    Δθcpu = deepcopy(get_grads(Gcpu))
     @test ΔXgpu ≈ ΔXcpu rtol=rtol
+    @test Δθgpu ≈ Δθcpu rtol=rtol
     @test Xgpu ≈ Xcpu rtol=rtol
 
 end

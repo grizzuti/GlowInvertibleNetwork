@@ -10,13 +10,17 @@ end
 
 @Flux.functor ConvolutionalBlock
 
-function ConvolutionalBlock(nc_in, nc_out, nc_hidden; k1=3, p1=1, s1=1, actnorm1::Bool=true, k2=1, p2=0, s2=1, actnorm2::Bool=true, k3=3, p3=1, s3=1, weight_std1::Real=0.05, weight_std2::Real=0.05, logscale_factor::Real=3.0, T::DataType=Float32)
+function ConvolutionalBlock(nc_in, nc_out, nc_hidden; k1=3, p1=1, s1=1, actnorm1::Bool=true, k2=1, p2=0, s2=1, actnorm2::Bool=true, k3=3, p3=1, s3=1, weight_std1::Real=0.05, weight_std2::Real=0.05, logscale_factor::Real=3.0, T::DataType=Float32, init_zero::Bool=true)
 
     CL1 = ConvolutionalLayer(nc_in, nc_hidden; k=k1, p=p1, s=s1, bias=~actnorm1, weight_std=weight_std1, T=T)
     actnorm1 ? (A1 = ActNormPar(nc_hidden; logdet=false, T=T)) : (A1 = nothing)
     CL2 = ConvolutionalLayer(nc_hidden, nc_hidden; k=k2, p=p2, s=s2, bias=~actnorm2, weight_std=weight_std2, T=T)
     actnorm2 ? (A2 = ActNormPar(nc_hidden; logdet=false, T=T)) : (A2 = nothing)
-    CL3 = ConvolutionalLayer0(nc_hidden, nc_out; k=k3, p=p3, s=s3, logscale_factor=logscale_factor, T=T)
+    if init_zero
+        CL3 = ConvolutionalLayer0(nc_hidden, nc_out; k=k3, p=p3, s=s3, logscale_factor=logscale_factor, T=T)
+    else
+        CL3 = ConvolutionalLayer0(nc_hidden, nc_out; k=k3, p=p3, s=s3, logscale_factor=logscale_factor, weight_std=weight_std2, T=T)
+    end
 
     return ConvolutionalBlock{T}(CL1, A1, CL2, A2, CL3)
 
@@ -72,3 +76,6 @@ function get_params(CB::ConvolutionalBlock)
     p = cat(p, get_params(CB.CL3); dims=1)
     return p
 end
+
+gpu(CB::ConvolutionalBlock{T}) where T = ConvolutionalBlock{T}(gpu(CB.CL1),gpu(CB.A1),gpu(CB.CL2),gpu(CB.A2),gpu(CB.CL3))
+cpu(CB::ConvolutionalBlock{T}) where T = ConvolutionalBlock{T}(cpu(CB.CL1),cpu(CB.A1),cpu(CB.CL2),cpu(CB.A2),cpu(CB.CL3))

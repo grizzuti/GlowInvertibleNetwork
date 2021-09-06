@@ -8,9 +8,9 @@ end
 
 @Flux.functor ConvolutionalLayer0
 
-function ConvolutionalLayer0(nc_in, nc_out; k=3, p=1, s=1, logscale_factor::Real=3e0, T::DataType=Float32)
+function ConvolutionalLayer0(nc_in, nc_out; k=3, p=1, s=1, logscale_factor::Real=3e0, weight_std::Real=0., T::DataType=Float32)
 
-    CL = ConvolutionalLayer(nc_in, nc_out; k=k, p=p, s=s, bias=true, weight_std=T(0), T=T)
+    CL = ConvolutionalLayer(nc_in, nc_out; k=k, p=p, s=s, bias=true, weight_std=weight_std, T=T)
     logs = Parameter(zeros(T, 1, 1, nc_out, 1))
 
     return ConvolutionalLayer0{T}(CL, logscale_factor, logs)
@@ -37,5 +37,5 @@ end
 
 get_params(CL0::ConvolutionalLayer0) = cat(get_params(CL0.CL), CL0.logs; dims=1)
 
-gpu(CL0::ConvolutionalLayer0) = ConvolutionalLayer0(gpu(CL0.CL), CL0.logscale_factor, gpu(CL0.logs))
-cpu(CL0::ConvolutionalLayer0) = ConvolutionalLayer0(cpu(CL0.CL), CL0.logscale_factor, cpu(CL0.logs))
+gpu(CL0::ConvolutionalLayer0{T}) where T = ConvolutionalLayer0{T}(gpu(CL0.CL), CL0.logscale_factor, gpu(CL0.logs))
+cpu(CL0::ConvolutionalLayer0{T}) where T = ConvolutionalLayer0{T}(cpu(CL0.CL), CL0.logscale_factor, cpu(CL0.logs))
