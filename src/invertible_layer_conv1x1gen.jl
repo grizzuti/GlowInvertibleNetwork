@@ -1,6 +1,6 @@
 export Conv1x1gen
 
-mutable struct Conv1x1gen{T<:Real} <: InvertibleNetwork
+struct Conv1x1gen{T<:Real} <: InvertibleNetwork
     nc::Int64
     P::AbstractMatrix{T}
     l::Parameter
