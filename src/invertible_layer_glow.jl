@@ -1,160 +1,64 @@
 export LayerGlow
 
-struct LayerGlow <: NeuralNetLayer
-    C::Conv1x1gen
-    RB::Union{ResidualBlock, FluxBlock}
+struct LayerGlow{T} <: NeuralNetLayer
+    AN::ActNormPar{T}
+    C::Conv1x1gen{T}
+    CL::CouplingLayerAffine{T}
     logdet::Bool
 end
 
-@Flux.functor CouplingLayerGlow
+@Flux.functor LayerGlow
 
-# Constructor from 1x1 convolution and residual block
-function CouplingLayerGlow(C::Conv1x1, RB::ResidualBlock; logdet=false)
-    RB.fan == false && throw("Set ResidualBlock.fan == true")
-    return CouplingLayerGlow(C, RB, logdet)
+function LayerGlow(nc, nc_hidden; logdet::Bool=true, T::DataType=Float32, cl_id::Bool=true)
+
+    AN = ActNormPar(nc; logdet=logdet, T=T)
+    C  = Conv1x1gen(nc; logdet=logdet, T=T)
+    CL = CouplingLayerAffine(nc, nc_hidden; logdet=logdet, T=T, init_id=cl_id)
+    return LayerGlow{T}(AN,C,CL,logdet)
+
 end
 
-# Constructor from 1x1 convolution and residual Flux block
-CouplingLayerGlow(C::Conv1x1, RB::FluxBlock; logdet=false) = CouplingLayerGlow(C, RB, logdet)
+function forward(X::AbstractArray{T,4}, LG::LayerGlow{T}) where T
 
-# Constructor from input dimensions
-function CouplingLayerGlow(n_in::Int64, n_hidden::Int64; k1=3, k2=1, p1=1, p2=0, s1=1, s2=1, logdet=false, ndims=2)
-
-    # 1x1 Convolution and residual block for invertible layer
-    C = Conv1x1(n_in)
-    RB = ResidualBlock(Int(n_in/2), n_hidden; k1=k1, k2=k2, p1=p1, p2=p2, s1=s1, s2=s2, fan=true, ndims=ndims)
-
-    return CouplingLayerGlow(C, RB, logdet)
-end
-
-CouplingLayerGlow3D(args...;kw...) = CouplingLayerGlow(args...; kw..., ndims=3)
-
-# Forward pass: Input X, Output Y
-function forward(X::AbstractArray{Float32, 4}, L::CouplingLayerGlow)
-
-    # Get dimensions
-    k = Int(L.C.k/2)
-
-    X_ = L.C.forward(X)
-    X1, X2 = tensor_split(X_)
-
-    Y2 = copy(X2)
-    logS_T = L.RB.forward(X2)
-    S = Sigmoid(logS_T[:,:,1:k,:])
-    T = logS_T[:, :, k+1:end, :]
-    Y1 = S.*X1 + T
-    Y = tensor_cat(Y1, Y2)
-
-    L.logdet == true ? (return Y, glow_logdet_forward(S)) : (return Y)
-end
-
-# Inverse pass: Input Y, Output X
-function inverse(Y::AbstractArray{Float32, 4}, L::CouplingLayerGlow; save=false)
-
-    # Get dimensions
-    k = Int(L.C.k/2)
-    Y1, Y2 = tensor_split(Y)
-
-    X2 = copy(Y2)
-    logS_T = L.RB.forward(X2)
-    S = Sigmoid(logS_T[:,:,1:k,:])
-    T = logS_T[:, :, k+1:end, :]
-    X1 = (Y1 - T) ./ (S .+ eps(1f0)) # add epsilon to avoid division by 0
-    X_ = tensor_cat(X1, X2)
-    X = L.C.inverse(X_)
-
-    save == true ? (return X, X1, X2, S) : (return X)
-end
-
-# Backward pass: Input (ΔY, Y), Output (ΔX, X)
-function backward(ΔY::AbstractArray{Float32, 4}, Y::AbstractArray{Float32, 4}, L::CouplingLayerGlow; set_grad::Bool=true)
-
-    # Recompute forward state
-    k = Int(L.C.k/2)
-    X, X1, X2, S = inverse(Y, L; save=true)
-
-    # Backpropagate residual
-    ΔY1, ΔY2 = tensor_split(ΔY)
-    ΔT = copy(ΔY1)
-    ΔS = ΔY1 .* X1
-    if L.logdet
-        set_grad ? (ΔS -= glow_logdet_backward(S)) : (ΔS_ = glow_logdet_backward(S))
-    end
-
-    ΔX1 = ΔY1 .* S
-    if set_grad
-        ΔX2 = L.RB.backward(cat(SigmoidGrad(ΔS, S), ΔT; dims=3), X2) + ΔY2
+    if LG.logdet
+        X, logdet1 = LG.AN.forward(X)
+        X, logdet2 = LG.C.forward(X)
+        X, logdet3 = LG.CL.forward(X)
+        return X, logdet1+logdet2+logdet3
     else
-        ΔX2, Δθrb = L.RB.backward(cat(SigmoidGrad(ΔS, S), ΔT; dims=3), X2; set_grad=set_grad)
-        _, ∇logdet = L.RB.backward(cat(SigmoidGrad(ΔS_, S), 0f0.*ΔT; dims=3), X2; set_grad=set_grad)
-        ΔX2 += ΔY2
-    end
-    ΔX_ = tensor_cat(ΔX1, ΔX2)
-    if set_grad
-        ΔX = L.C.inverse((ΔX_, tensor_cat(X1, X2)))[1]
-    else
-        ΔX, Δθc = L.C.inverse((ΔX_, tensor_cat(X1, X2)); set_grad=set_grad)[1:2]
-        Δθ = cat(Δθc, Δθrb; dims=1)
+        X = LG.AN.forward(X)
+        X = LG.C.forward(X)
+        X = LG.CL.forward(X)
+        return X
     end
 
-    if set_grad
-        return ΔX, X
-    else
-        L.logdet ? (return ΔX, Δθ, X, cat(0f0*Δθ[1:3], ∇logdet; dims=1)) : (return ΔX, Δθ, X)
-    end
 end
 
+function inverse(Y::AbstractArray{T,4}, LG::LayerGlow{T}) where T
 
-## Jacobian-related functions
+    Y = LG.CL.inverse(Y)
+    Y = LG.C.inverse(Y)
+    Y = LG.AN.inverse(Y)
+    return Y
 
-function jacobian(ΔX::AbstractArray{Float32, 4}, Δθ::Array{Parameter, 1}, X, L::CouplingLayerGlow)
-
-    # Get dimensions
-    k = Int(L.C.k/2)
-
-    ΔX_, X_ = L.C.jacobian(ΔX, Δθ[1:3], X)
-    X1, X2 = tensor_split(X_)
-    ΔX1, ΔX2 = tensor_split(ΔX_)
-
-    Y2 = copy(X2)
-    ΔY2 = copy(ΔX2)
-    ΔlogS_T, logS_T = L.RB.jacobian(ΔX2, Δθ[4:end], X2)
-    S = Sigmoid(logS_T[:,:,1:k,:])
-    ΔS = SigmoidGrad(ΔlogS_T[:,:,1:k,:], nothing; x=logS_T[:,:,1:k,:])
-    T = logS_T[:, :, k+1:end, :]
-    ΔT = ΔlogS_T[:, :, k+1:end, :]
-    Y1 = S.*X1 + T
-    ΔY1 = ΔS.*X1 + S.*ΔX1 + ΔT
-    Y = tensor_cat(Y1, Y2)
-    ΔY = tensor_cat(ΔY1, ΔY2)
-
-    # Gauss-Newton approximation of logdet terms
-    JΔθ = L.RB.jacobian(zeros(Float32, size(ΔX2)), Δθ[4:end], X2)[1][:, :, 1:k, :]
-    GNΔθ = cat(0f0*Δθ[1:3], -L.RB.adjointJacobian(tensor_cat(SigmoidGrad(JΔθ, S), zeros(Float32, size(S))), X2)[2]; dims=1)
-
-    L.logdet ? (return ΔY, Y, glow_logdet_forward(S), GNΔθ) : (return ΔY, Y)
 end
 
-function adjointJacobian(ΔY, Y, L::CouplingLayerGlow)
-    return backward(ΔY, Y, L; set_grad=false)
+function backward(ΔY::AbstractArray{T,4}, Y::AbstractArray{T,4}, LG::LayerGlow{T}) where T
+
+    ΔY,Y = LG.CL.backward(ΔY,Y)
+    ΔY,Y = LG.C.backward(ΔY,Y)
+    ΔY,Y = LG.AN.backward(ΔY,Y)
+    return ΔY,Y
+
 end
 
-
-## Other utils
-
-# Clear gradients
-function clear_grad!(L::CouplingLayerGlow)
-    clear_grad!(L.C)
-    clear_grad!(L.RB)
+function clear_grad!(LG::LayerGlow)
+    clear_grad!(LG.AN)
+    clear_grad!(LG.C)
+    clear_grad!(LG.CL)
 end
 
-# Get parameters
-function get_params(L::CouplingLayerGlow)
-    p1 = get_params(L.C)
-    p2 = get_params(L.RB)
-    return cat(p1, p2; dims=1)
-end
+get_params(LG::LayerGlow) = cat(get_params(LG.AN), get_params(LG.C), get_params(LG.CL); dims=1)
 
-# Logdet (correct?)
-glow_logdet_forward(S) = sum(log.(abs.(S))) / size(S, 4)
-glow_logdet_backward(S) = 1f0./ S / size(S, 4)
+gpu(LG::LayerGlow{T}) where T = LayerGlow{T}(gpu(LG.AN), gpu(LG.C), gpu(LG.CL), LG.logdet)
+cpu(LG::LayerGlow{T}) where T = LayerGlow{T}(cpu(LG.AN), cpu(LG.C), cpu(LG.CL), LG.logdet)

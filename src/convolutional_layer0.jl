@@ -8,7 +8,7 @@ end
 
 @Flux.functor ConvolutionalLayer0
 
-function ConvolutionalLayer0(nc_in, nc_out; k=3, p=1, s=1, logscale_factor::Real=3e0, weight_std::Real=0., T::DataType=Float32)
+function ConvolutionalLayer0(nc_in, nc_out; k=3, p=1, s=1, logscale_factor::Real=3., weight_std::Real=0., T::DataType=Float32)
 
     CL = ConvolutionalLayer(nc_in, nc_out; k=k, p=p, s=s, bias=true, weight_std=weight_std, T=T)
     logs = Parameter(zeros(T, 1, 1, nc_out, 1))

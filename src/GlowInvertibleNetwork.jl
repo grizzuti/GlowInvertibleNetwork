@@ -7,10 +7,10 @@ import InvertibleNetworks: forward, inverse, backward, clear_grad!, get_params
 include("./parameter_tricks.jl")
 include("./convolutional_layer.jl")
 include("./convolutional_layer0.jl")
-include("./actnorm_par.jl")
+include("./invertible_layer_actnorm_par.jl")
 include("./convolutional_block.jl")
 include("./invertible_layer_conv1x1gen.jl")
 include("./invertible_layer_claffine.jl")
-# include("./invertible_layer_glow.jl")
+include("./invertible_layer_glow.jl")
 
 end
