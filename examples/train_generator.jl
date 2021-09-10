@@ -39,6 +39,11 @@ decay_rate = 0.3
 lr_step = Int64(floor(nepochs*nbatches*log(decay_rate)/log(lrmin/lr)))
 opt = Optimiser(ExpDecay(lr, decay_rate, lr_step, lrmin), ADAM(lr))
 grad_clip = false; grad_max = 5f0
+intermediate_save = 100
+
+# Test latent
+ntest = batch_size
+Ztest = zeros(Float32, 64,64,1,ntest) |> gpu
 
 # Training
 floss = zeros(Float32, nbatches, nepochs)
@@ -54,7 +59,7 @@ for e = 1:nepochs # epoch loop
 
         # Select mini-batch of data
         Xb = X[:,:,:,idx_e[:,b]]
-        Xb .+= 0.01f0*CUDA.randn(Float32, size(Xb))
+        # Xb .+= 0.01f0*CUDA.randn(Float32, size(Xb))
 
         # Evaluate network
         Zb, lgdet = G.forward(Xb)
@@ -70,19 +75,24 @@ for e = 1:nepochs # epoch loop
         for p in θ
             grad_clip && (norm(p.grad) > grad_max) && (p.grad *= grad_max/norm(p.grad)) # Gradient clipping
             update!(opt, p.data, p.grad)
-            # p.grad = nothing # clear gradient
+            p.grad = nothing # clear gradient
         end
 
     end # end batch loop
 
     # Saving intermediate results
-    (mod(e, 10)==0 || e==nepochs) && save("./results/MRIgen/results_gen.jld", "theta", cpu(θ), "floss_logdet", floss_logdet, "floss", floss)
+    if mod(e, intermediate_save) == 0
+        save("./results/MRIgen/results_gen_intermediate.jld", "theta", cpu(θ), "floss_logdet", floss_logdet, "floss", floss)
+        X_test = G.inverse(Ztest) |> cpu
+        plot_image(X_test[:, :, 1, 1]; figsize=(5,5), vmin=min(X_test[:,:,1,1]...), vmax=max(X_test[:,:,1,1]...), title=L"$\mathbf{x}$", path="results/MRIgen/new_samples_intermediate.png")
+        plot_loss(range(0, nepochs, length=length(floss_logdet[:])), vec(floss_logdet); figsize=(7, 2.5), color="#d48955", title="Negative log-likelihood", path="results/MRIgen/loss_intermediate.png", xlabel="Epochs", ylabel="Training objective")
+    end
 
 end # end epoch loop
 
 # Generate random samples
 G = G |> cpu
-Z = randn(Float32,64,64,1,nbatches)
+Z = randn(Float32,64,64,1,batch_size)
 X_new = G.inverse(Z)
 
 # Plotting

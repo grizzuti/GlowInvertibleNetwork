@@ -25,7 +25,6 @@ function forward(X::AbstractArray{T,4}, CL::CouplingLayerAffine{T}) where T
     t = CL.CB.forward(X1)
     if CL.affine
         logs, t = tensor_split(t)
-        # s = 2*Sigmoid(logs)
         s = ExpClampNew(logs)
         Y2 = X2.*s+t
         CL.logdet && (lgdt = logdet(CL, s))
@@ -44,7 +43,6 @@ function inverse(Y::AbstractArray{T,4}, CL::CouplingLayerAffine{T}) where T
     t = CL.CB.forward(X1)
     if CL.affine
         logs, t = tensor_split(t)
-        # s = 2*Sigmoid(logs)
         s = ExpClampNew(logs)
         X2 = (Y2-t)./s
     else
@@ -62,13 +60,11 @@ function backward(ΔY::AbstractArray{T,4}, Y::AbstractArray{T,4}, CL::CouplingLa
     Δt = ΔY2
     if CL.affine
         logs, t = tensor_split(t)
-        # s = 2*Sigmoid(logs)
         s = ExpClampNew(logs)
         X2 = (Y2-t)./s
         ΔX2 = ΔY2.*s
         Δs = X2.*ΔY2
         CL.logdet && (Δs .-= dlogdet(CL, s))
-        # Δlogs = 2*SigmoidGrad(Δs, s; x=logs)
         Δlogs = ExpClampNewGrad(Δs, logs)
         ΔX1 .+= CL.CB.backward(tensor_cat(Δlogs, Δt), X1)
     else

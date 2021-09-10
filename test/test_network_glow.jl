@@ -5,8 +5,8 @@ using Random; Random.seed!(1)
 
 T = Float64
 
-nc = 2
-nc_hidden = 2
+nc = 1
+nc_hidden = 256
 logdet = true
 cl_id = true
 depth = 3
@@ -14,8 +14,8 @@ nscales = 4
 N = Glow(nc, nc_hidden, depth, nscales; logdet=logdet, T=T, cl_id=cl_id)
 
 # Eval
-nx = 16
-ny = 16
+nx = 64
+ny = 64
 nb = 4
 X = randn(T, nx, ny, nc, nb)
 Y = N.forward(X)[1]
