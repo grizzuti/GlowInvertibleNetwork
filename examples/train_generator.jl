@@ -18,8 +18,8 @@ depth = 5
 nscales = 5
 cl_id = true
 # cl_id = false
-# conv_orth = true
-conv_orth = false
+conv_orth = true
+# conv_orth = false
 conv_id = true
 # conv_id = false
 cl_affine = true
@@ -32,18 +32,18 @@ loss(X::AbstractArray{Float32,4}) = 0.5f0*norm(X)^2/size(X,4), X/size(X,4)
 # Setting optimizer options
 batch_size = 2^4
 nbatches = Int64(ntrain/batch_size)
-nepochs = 1000
+nepochs = 3
 lr = 1f-4
 lrmin = lr*0.0001
 decay_rate = 0.3
 lr_step = Int64(floor(nepochs*nbatches*log(decay_rate)/log(lrmin/lr)))
 opt = Optimiser(ExpDecay(lr, decay_rate, lr_step, lrmin), ADAM(lr))
 grad_clip = false; grad_max = 5f0
-intermediate_save = 100
+intermediate_save = 20
 
 # Test latent
 ntest = batch_size
-Ztest = zeros(Float32, 64,64,1,ntest) |> gpu
+Ztest = randn(Float32, 64,64,1,ntest) |> gpu
 
 # Training
 floss = zeros(Float32, nbatches, nepochs)
@@ -68,6 +68,13 @@ for e = 1:nepochs # epoch loop
         floss[b,e], ΔZb = loss(Zb); floss_logdet[b,e] = floss[b,e]-lgdet
         print("Iter: epoch=", e, "/", nepochs, ", batch=", b, "/", nbatches, "; f = ", floss_logdet[b,e], "\n")
 
+        # Reload previous state to prevent divergence
+        if e > 1 && (isnan(floss_logdet[b,e]) || isinf(floss_logdet[b,e]))
+            set_params!(G, gpu(load("./results/MRIgen/results_gen_intermediate.jld")["theta"]))
+            e -= 1
+            break
+        end
+
         # Computing gradient
         G.backward(ΔZb, Zb)
 
@@ -81,8 +88,8 @@ for e = 1:nepochs # epoch loop
     end # end batch loop
 
     # Saving intermediate results
+    save("./results/MRIgen/results_gen_intermediate.jld", "theta", cpu(θ), "floss_logdet", floss_logdet, "floss", floss)
     if mod(e, intermediate_save) == 0
-        save("./results/MRIgen/results_gen_intermediate.jld", "theta", cpu(θ), "floss_logdet", floss_logdet, "floss", floss)
         X_test = G.inverse(Ztest) |> cpu
         plot_image(X_test[:, :, 1, 1]; figsize=(5,5), vmin=min(X_test[:,:,1,1]...), vmax=max(X_test[:,:,1,1]...), title=L"$\mathbf{x}$", path="results/MRIgen/new_samples_intermediate.png")
         plot_loss(range(0, nepochs, length=length(floss_logdet[:])), vec(floss_logdet); figsize=(7, 2.5), color="#d48955", title="Negative log-likelihood", path="results/MRIgen/loss_intermediate.png", xlabel="Epochs", ylabel="Training objective")

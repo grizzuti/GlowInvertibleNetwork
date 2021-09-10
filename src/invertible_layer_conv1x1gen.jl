@@ -25,11 +25,7 @@ function Conv1x1gen(nc::Int64; logdet::Bool=true, orthogonal::Bool=false, init_i
     P = F.P
     L = F.L; l = Matrix2Array(L, inds_l)
     U = F.U; u = Matrix2Array(U, inds_u)
-    if ~orthogonal
-        s = abs.(diag(U)) # make sure W is SO(nc)
-    else
-        s = ones(T,nc)
-    end
+    s = abs.(diag(U)) # make sure W is SO(nc)
     init_id && (l .= T(0); u.= T(0); s .= T(1))
 
     return Conv1x1gen{T}(nc, P, Parameter(l), inds_l, Parameter(u), inds_u, Parameter(s), inds_s, orthogonal, logdet)
