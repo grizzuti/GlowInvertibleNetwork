@@ -32,7 +32,7 @@ loss(X::AbstractArray{Float32,4}) = 0.5f0*norm(X)^2/size(X,4), X/size(X,4)
 # Setting optimizer options
 batch_size = 2^4
 nbatches = Int64(ntrain/batch_size)
-nepochs = 10
+nepochs = 1000
 lr = 1f-4
 lrmin = lr*0.0001
 decay_rate = 0.3
