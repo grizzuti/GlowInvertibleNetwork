@@ -9,27 +9,30 @@ struct Conv1x1gen{T<:Real} <: InvertibleNetwork
     inds_u::AbstractVector
     s::Parameter
     inds_s::AbstractVector
+    orthogonal::Bool
     logdet::Bool
 end
 
 @Flux.functor Conv1x1gen
 
-function Conv1x1gen(nc::Int64; logdet::Bool=false, T::DataType=Float32)
+function Conv1x1gen(nc::Int64; logdet::Bool=true, orthogonal::Bool=false, init_id::Bool=false, T::DataType=Float32)
 
-    # Random orthogonal matrix
-    W = Array(qr(randn(T, nc, nc)).Q)
-
-    # LU decomposition PA=LU
-    F = lu(W)
-    P = F.P
     inds_l = findall((1:nc).>(1:nc)')
-    L = F.L; l = Matrix2Array(L, inds_l)
     inds_u = findall((1:nc).<(1:nc)')
-    U = F.U; u = Matrix2Array(U, inds_u)
     inds_s = findall((1:nc).==(1:nc)')
-    s = abs.(diag(U)) # make sure W is SO(nc)
+    W = Array(qr(randn(T, nc, nc)).Q)
+    F = lu(W) # LU decomposition PA=LU
+    P = F.P
+    L = F.L; l = Matrix2Array(L, inds_l)
+    U = F.U; u = Matrix2Array(U, inds_u)
+    if ~orthogonal
+        s = abs.(diag(U)) # make sure W is SO(nc)
+    else
+        s = ones(T,nc)
+    end
+    init_id && (l .= T(0); u.= T(0); s .= T(1))
 
-    return Conv1x1gen{T}(nc, P, Parameter(l), inds_l, Parameter(u), inds_u, Parameter(s), inds_s, logdet)
+    return Conv1x1gen{T}(nc, P, Parameter(l), inds_l, Parameter(u), inds_u, Parameter(s), inds_s, orthogonal, logdet)
 
 end
 
@@ -38,7 +41,11 @@ function forward(X::AbstractArray{T,4}, C::Conv1x1gen{T}) where T
     W = convweight(C)
     nx, ny, _, nb = size(X)
     Y = conv1x1(X, W)
-    C.logdet ? (return Y, logdet(C, nx,ny,nb)) : (return Y)
+    if C.orthogonal
+        C.logdet ? (return Y, T(0)) : (return Y)
+    else
+        C.logdet ? (return Y, logdet(C, nx,ny,nb)) : (return Y)
+    end
 
 end
 
@@ -67,7 +74,7 @@ function backward(ΔY::AbstractArray{T,4}, Y::AbstractArray{T,4}, C::Conv1x1gen{
     C.l.grad = Matrix2Array(PΔW*(Array2Matrix(C.u.data, C.nc, C.inds_u)+Array2Matrix(C.s.data, C.nc, C.inds_s))', C.inds_l)
     C.u.grad = Matrix2Array(LTPΔW, C.inds_u)
     C.s.grad = Matrix2Array(LTPΔW, C.inds_s)
-    C.logdet && (C.s.grad .-= dlogdet(C, size(X,1),size(X,2),size(X,4)))
+    ~C.orthogonal && C.logdet && (C.s.grad .-= dlogdet(C, size(X,1),size(X,2),size(X,4)))
 
     return ΔX, X
 
@@ -117,10 +124,10 @@ Matrix2Array(A::AbstractArray{T,2}, inds) where T = A[inds]
 function clear_grad!(C::Conv1x1gen)
     C.l.grad = nothing
     C.u.grad = nothing
-    C.s.grad = nothing
+    ~C.orthogonal && (C.s.grad = nothing)
 end
 
-get_params(C::Conv1x1gen) = cat(C.l, C.u, C.s; dims=1)
+get_params(C::Conv1x1gen) = C.orthogonal ? (return cat(C.l, C.u; dims=1)) : (return cat(C.l, C.u, C.s; dims=1))
 
-gpu(C::Conv1x1gen{T}) where T = Conv1x1gen{T}(C.nc, gpu(C.P), gpu(C.l), C.inds_l, gpu(C.u), C.inds_u, gpu(C.s), C.inds_s, C.logdet)
-cpu(C::Conv1x1gen{T}) where T = Conv1x1gen{T}(C.nc, cpu(C.P), cpu(C.l), C.inds_l, cpu(C.u), C.inds_u, cpu(C.s), C.inds_s, C.logdet)
+gpu(C::Conv1x1gen{T}) where T = Conv1x1gen{T}(C.nc, gpu(C.P), gpu(C.l), C.inds_l, gpu(C.u), C.inds_u, gpu(C.s), C.inds_s, C.orthogonal, C.logdet)
+cpu(C::Conv1x1gen{T}) where T = Conv1x1gen{T}(C.nc, cpu(C.P), cpu(C.l), C.inds_l, cpu(C.u), C.inds_u, cpu(C.s), C.inds_s, C.orthogonal, C.logdet)

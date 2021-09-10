@@ -10,13 +10,13 @@ end
 
 @Flux.functor Glow
 
-function Glow(nc::Int64, nc_hidden::Int64, depth::Int64, nscales::Int64; logdet::Bool=true, T::DataType=Float32, cl_id::Bool=true)
+function Glow(nc::Int64, nc_hidden::Int64, depth::Int64, nscales::Int64; logdet::Bool=true, cl_affine::Bool=true, cl_id::Bool=true, conv_id::Bool=true, conv_orth::Bool=false, T::DataType=Float32)
 
     FS = Array{FlowStep{T},2}(undef,depth,nscales)
     nc = 4*nc
     for l = 1:nscales
         for k = 1:depth
-            FS[k,l] = FlowStep(nc, nc_hidden; logdet=logdet, T=T, cl_id=cl_id)
+            FS[k,l] = FlowStep(nc, nc_hidden; logdet=logdet, cl_id=cl_id, cl_affine=cl_affine, conv_orth=conv_orth, conv_id=conv_id, T=T)
         end
         nc = 2*nc
     end
@@ -145,17 +145,17 @@ function get_params(G::Glow)
 end
 
 function gpu(G::Glow{T}) where T
-    FS = Array{FlowStep{T},2}(undef,depth,nscales)
+    FS = Array{FlowStep{T},2}(undef,G.depth,G.nscales)
     for l=1:G.nscales, k=1:G.depth
         FS[k,l] = gpu(G.FS[k,l])
     end
-    return Glow{T}(G.depth, G.nscales, FS, G.logdet)
+    return Glow{T}(G.depth, G.nscales, G.scale_dims, FS, G.logdet)
 end
 
 function cpu(G::Glow{T}) where T
-    FS = Array{FlowStep{T},2}(undef,depth,nscales)
+    FS = Array{FlowStep{T},2}(undef,G.depth,G.nscales)
     for l=1:G.nscales, k=1:G.depth
         FS[k,l] = cpu(G.FS[k,l])
     end
-    return Glow{T}(G.depth, G.nscales, FS, G.logdet)
+    return Glow{T}(G.depth, G.nscales, G.scale_dims, FS, G.logdet)
 end

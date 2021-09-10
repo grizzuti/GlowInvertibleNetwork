@@ -10,7 +10,7 @@ end
 
 @Flux.functor ConvolutionalBlock
 
-function ConvolutionalBlock(nc_in, nc_out, nc_hidden; k1=3, p1=1, s1=1, actnorm1::Bool=true, k2=1, p2=0, s2=1, actnorm2::Bool=true, k3=3, p3=1, s3=1, weight_std1::Real=0.05, weight_std2::Real=0.05, logscale_factor::Real=3.0, T::DataType=Float32, init_zero::Bool=true)
+function ConvolutionalBlock(nc_in, nc_out, nc_hidden; k1=3, p1=1, s1=1, actnorm1::Bool=true, k2=1, p2=0, s2=1, actnorm2::Bool=true, k3=3, p3=1, s3=1, weight_std1::Real=0.05, weight_std2::Real=0.05, logscale_factor::Real=3.0, init_zero::Bool=true, T::DataType=Float32)
 
     CL1 = ConvolutionalLayer(nc_in, nc_hidden; k=k1, p=p1, s=s1, bias=~actnorm1, weight_std=weight_std1, T=T)
     actnorm1 ? (A1 = ActNormPar(nc_hidden; logdet=false, T=T)) : (A1 = nothing)
@@ -26,37 +26,42 @@ function ConvolutionalBlock(nc_in, nc_out, nc_hidden; k1=3, p1=1, s1=1, actnorm1
 
 end
 
-function forward(X1::AbstractArray{T,N}, CB::ConvolutionalBlock{T}; save::Bool=false) where {N,T}
+function forward(X::AbstractArray{T,N}, CB::ConvolutionalBlock{T}; save::Bool=false) where {N,T}
 
-    Y1 = CB.CL1.forward(X1)
-    H1 = ReLU(Y1)
-    CB.A1 !== nothing ? (X2 = CB.A1.forward(H1)) : (X2 = H1)
+    C1 = CB.CL1.forward(X)
+    CB.A1 !== nothing ? (A1 = CB.A1.forward(C1)) : (A1 = C1)
+    H1 = ReLU(A1)
 
-    Y2 = CB.CL2.forward(X2)
-    H2 = ReLU(Y2)
-    CB.A2 !== nothing ? (X3 = CB.A2.forward(H2)) : (X3 = H2)
+    C2 = CB.CL2.forward(H1)
+    CB.A2 !== nothing ? (A2 = CB.A2.forward(C2)) : (A2 = C2)
+    H2 = ReLU(A2)
 
-    Y3 = CB.CL3.forward(X3)
+    Y = CB.CL3.forward(H2)
+    # C3 = CB.CL3.forward(H2)
+    # Y = X+C3
 
-    ~save ? (return Y3) : (return Y1, Y2, Y3, X2, X3)
+    ~save ? (return Y) : (return A1, H1, A2, H2, Y)#(return A1, H1, A2, H2, C3, Y)#
 
 end
 
-function backward(ΔY3::AbstractArray{T, N}, X1::AbstractArray{T,N}, CB::ConvolutionalBlock{T}) where {N,T}
+function backward(ΔY::AbstractArray{T, N}, X::AbstractArray{T,N}, CB::ConvolutionalBlock{T}) where {N,T}
 
-    Y1, Y2, Y3, X2, X3 = CB.forward(X1; save=true) # Recompute forward states from input
+    A1, H1, A2, H2, Y = CB.forward(X; save=true) # Recompute forward states from input
+    # A1, H1, A2, H2, C3, Y = CB.forward(X; save=true) # Recompute forward states from input
 
-    ΔX3 = CB.CL3.backward(ΔY3, X3; Z=Y3)
+    # ΔH2 = CB.CL3.backward(ΔY, H2; Z=C3)
+    ΔH2 = CB.CL3.backward(ΔY, H2; Z=Y)
 
-    CB.A2 !== nothing ? ((ΔH2, H2) = CB.A2.backward(ΔX3, X3)) : (ΔH2 = ΔX3; H2 = X3)
-    ΔY2 = ReLUgrad(ΔH2, Y2)
-    ΔX2 = CB.CL2.backward(ΔY2, X2)
+    ΔA2 = ReLUgrad(ΔH2, A2)
+    CB.A2 !== nothing ? ((ΔC2, _) = CB.A2.backward(ΔA2, A2)) : (ΔC2 = ΔA2)
+    ΔH1 = CB.CL2.backward(ΔC2, H1)
 
-    CB.A1 !== nothing ? ((ΔH1, H1) = CB.A1.backward(ΔX2, X2)) : (ΔH1 = ΔX2; H1 = X2)
-    ΔY1 = ReLUgrad(ΔH1, Y1)
-    ΔX1 = CB.CL1.backward(ΔY1, X1)
+    ΔA1 = ReLUgrad(ΔH1, A1)
+    CB.A1 !== nothing ? ((ΔC1, _) = CB.A1.backward(ΔA1, A1)) : (ΔC1 = ΔA1)
+    ΔX = CB.CL1.backward(ΔC1, X)
+    # ΔX = ΔY+CB.CL1.backward(ΔC1, X)
 
-    return ΔX1
+    return ΔX
 
 end
 

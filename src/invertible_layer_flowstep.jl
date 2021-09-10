@@ -9,11 +9,11 @@ end
 
 @Flux.functor FlowStep
 
-function FlowStep(nc, nc_hidden; logdet::Bool=true, T::DataType=Float32, cl_id::Bool=true)
+function FlowStep(nc, nc_hidden; logdet::Bool=true, cl_id::Bool=true, conv_id::Bool=false, cl_affine::Bool=true, conv_orth::Bool=false, T::DataType=Float32)
 
     AN = ActNormPar(nc; logdet=logdet, T=T)
-    C  = Conv1x1gen(nc; logdet=logdet, T=T)
-    CL = CouplingLayerAffine(nc, nc_hidden; logdet=logdet, T=T, init_id=cl_id)
+    C  = Conv1x1gen(nc; logdet=logdet, orthogonal=conv_orth, init_id=conv_id, T=T)
+    CL = CouplingLayerAffine(nc, nc_hidden; logdet=logdet, init_id=cl_id, affine=cl_affine, T=T)
     return FlowStep{T}(AN,C,CL,logdet)
 
 end
@@ -36,8 +36,8 @@ end
 
 function inverse(Y::AbstractArray{T,4}, LG::FlowStep{T}) where T
 
-    Y = LG.CL.inverse(Y)
     Y = LG.C.inverse(Y)
+    Y = LG.CL.inverse(Y)
     Y = LG.AN.inverse(Y)
     return Y
 

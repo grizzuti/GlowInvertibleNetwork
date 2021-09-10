@@ -7,7 +7,11 @@ T = Float64
 nc = 4
 nc_hidden = 16
 logdet = true
-N = CouplingLayerAffine(nc, nc_hidden; logdet=logdet, T=T, init_id=false)
+# init_id = true
+init_id = false
+affine=true
+# affine=false
+N = CouplingLayerAffine(nc, nc_hidden; logdet=logdet, init_id=init_id, affine=affine, T=T)
 
 # Eval
 nx = 64
@@ -32,5 +36,5 @@ gradient_test_input(N, loss, X; step=step, rtol=rtol, invnet=true)
 gradient_test_pars(N, loss, X; step=step, rtol=rtol, invnet=true)
 
 # Forward (CPU vs GPU)
-N = CouplingLayerAffine(nc, nc_hidden; logdet=logdet, T=Float32, init_id=false)
+N = CouplingLayerAffine(nc, nc_hidden; logdet=logdet, init_id=init_id, T=Float32)
 cpu_vs_gpu_test(N, size(X); rtol=1f-4)

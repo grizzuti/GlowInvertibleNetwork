@@ -10,7 +10,7 @@ nc_hidden = 2
 logdet = true
 cl_id = true
 depth = 3
-nscales = 2
+nscales = 4
 N = Glow(nc, nc_hidden, depth, nscales; logdet=logdet, T=T, cl_id=cl_id)
 
 # Eval

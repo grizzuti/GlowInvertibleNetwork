@@ -6,6 +6,7 @@ T = Float64
 
 nc_in = 4
 nc_out = 5
+# nc_out = nc_in
 nc_hidden = 21
 k = 3
 p = 1
@@ -13,7 +14,9 @@ s = 1
 bias = true
 weight_std = 0.05
 logscale_factor = 3.0
-N = ConvolutionalBlock(nc_in, nc_out, nc_hidden; k1=k, p1=p, s1=s, actnorm1=true, k2=k, p2=p, s2=s, actnorm2=true, k3=k, p3=p, s3=s, weight_std1=weight_std, weight_std2=weight_std, logscale_factor=logscale_factor, T=T, init_zero=false)
+# init_zero=true
+init_zero=false
+N = ConvolutionalBlock(nc_in, nc_out, nc_hidden; k1=k, p1=p, s1=s, actnorm1=true, k2=k, p2=p, s2=s, actnorm2=true, k3=k, p3=p, s3=s, weight_std1=weight_std, weight_std2=weight_std, logscale_factor=logscale_factor, init_zero=init_zero, T=T)
 
 # Eval
 nx = 64
