@@ -10,13 +10,13 @@ end
 
 @Flux.functor Glow
 
-function Glow(nc::Int64, nc_hidden::Int64, depth::Int64, nscales::Int64; logdet::Bool=true, cl_affine::Bool=true, cl_id::Bool=true, conv_id::Bool=true, conv_orth::Bool=false, T::DataType=Float32)
+function Glow(nc::Int64, nc_hidden::Int64, depth::Int64, nscales::Int64; logdet::Bool=true, cl_activation::Union{Nothing,InvertibleNetworks.ActivationFunction}=SigmoidLayer(), cl_affine::Bool=true, cl_id::Bool=true, conv_id::Bool=true, conv_orth::Bool=false, T::DataType=Float32)
 
     FS = Array{FlowStep{T},2}(undef,depth,nscales)
     nc = 4*nc
     for l = 1:nscales
         for k = 1:depth
-            FS[k,l] = FlowStep(nc, nc_hidden; logdet=logdet, cl_id=cl_id, cl_affine=cl_affine, conv_orth=conv_orth, conv_id=conv_id, T=T)
+            FS[k,l] = FlowStep(nc, nc_hidden; logdet=logdet, cl_activation=cl_activation, cl_id=cl_id, cl_affine=cl_affine, conv_orth=conv_orth, conv_id=conv_id, T=T)
         end
         nc = 2*nc
     end

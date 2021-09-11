@@ -22,9 +22,8 @@ conv_orth = true
 # conv_orth = false
 conv_id = true
 # conv_id = false
-cl_affine = true
-# cl_affine = false
-G = Glow(1, nc_hidden, depth, nscales; conv_orth=conv_orth, cl_id=cl_id, conv_id=conv_id, cl_affine=cl_affine) |> gpu
+cl_activation = SigmoidNewLayer(0.5f0)
+G = Glow(1, nc_hidden, depth, nscales; conv_orth=conv_orth, cl_id=cl_id, cl_activation=cl_activation, conv_id=conv_id) |> gpu
 
 # Set loss function
 loss(X::AbstractArray{Float32,4}) = 0.5f0*norm(X)^2/size(X,4), X/size(X,4)
@@ -32,18 +31,18 @@ loss(X::AbstractArray{Float32,4}) = 0.5f0*norm(X)^2/size(X,4), X/size(X,4)
 # Setting optimizer options
 batch_size = 2^4
 nbatches = Int64(ntrain/batch_size)
-nepochs = 3
+nepochs = 1000
 lr = 1f-4
 lrmin = lr*0.0001
 decay_rate = 0.3
 lr_step = Int64(floor(nepochs*nbatches*log(decay_rate)/log(lrmin/lr)))
 opt = Optimiser(ExpDecay(lr, decay_rate, lr_step, lrmin), ADAM(lr))
 grad_clip = false; grad_max = 5f0
-intermediate_save = 20
+intermediate_save = 10
 
 # Test latent
 ntest = batch_size
-Ztest = randn(Float32, 64,64,1,ntest) |> gpu
+Ztest = randn(Float32, 64, 64, 1, ntest) |> gpu
 
 # Training
 floss = zeros(Float32, nbatches, nepochs)
