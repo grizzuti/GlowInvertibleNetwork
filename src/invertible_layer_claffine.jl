@@ -1,4 +1,4 @@
-export CouplingLayerAffine
+export CouplingLayerAffine, CouplingLayerAffineOptions
 
 struct CouplingLayerAffine{T<:Real} <: NeuralNetLayer
     CB::ConvolutionalBlock{T}
@@ -9,13 +9,21 @@ end
 
 @Flux.functor CouplingLayerAffine
 
-function CouplingLayerAffine(nc_in::Int64, nc_hidden::Int64; logdet::Bool=true, activation::Union{Nothing,InvertibleNetworks.ActivationFunction}=SigmoidLayer(), init_id::Bool=true, affine::Bool=true, T::DataType=Float32)
+struct CouplingLayerAffineOptions{T<:Real}
+    options_convblock::ConvolutionalBlockOptions{T}
+    activation::Union{Nothing,InvertibleNetworks.ActivationFunction}
+    affine::Bool
+end
+
+CouplingLayerAffineOptions(; options_convblock::ConvolutionalBlockOptions{T}=ConvolutionalBlockOptions(), activation::Union{Nothing,InvertibleNetworks.ActivationFunction}=SigmoidNewLayer(T(0.5)), affine::Bool=true) where T = CouplingLayerAffineOptions{T}(options_convblock, activation, affine)
+
+function CouplingLayerAffine(nc_in::Int64, nc_hidden::Int64; logdet::Bool=true, opt::CouplingLayerAffineOptions{T}=CouplingLayerAffineOptions()) where T
 
     mod(nc_in, 2) != 0 && throw(ErrorException("Number of channel dimension should be even"))
     nc_in_ = Int64(nc_in/2)
-    nc_out = affine ? nc_in : nc_in_
-    CB = ConvolutionalBlock(nc_in_, nc_out, nc_hidden; T=T, init_zero=init_id)
-    return CouplingLayerAffine{T}(CB, affine, activation, logdet)
+    nc_out = opt.affine ? nc_in : nc_in_
+    CB = ConvolutionalBlock(nc_in_, nc_out, nc_hidden; opt=opt.options_convblock)
+    return CouplingLayerAffine{T}(CB, opt.affine, opt.activation, logdet)
 
 end
 

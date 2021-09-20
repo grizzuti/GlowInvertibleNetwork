@@ -5,22 +5,28 @@ include("./test_utils.jl")
 
 T = Float64
 
-nc = 1
-nc_hidden = 3
-logdet = true
-# logdet = false
-depth = 2
-nscales = 2
-# cl_id = true
-cl_id = false
-# conv_orth = true
-conv_orth = false
-# conv_id = true
-conv_id = false
+α = 0.5
 cl_affine = true
 # cl_affine = false
-α = 0.1
-N = Glow(nc, nc_hidden, depth, nscales; logdet=logdet, cl_id=cl_id, conv_orth=conv_orth, conv_id=conv_id, cl_affine=cl_affine, cl_activation=SigmoidNewLayer(T(α)), T=T)
+# init_cl_id = true
+init_cl_id = false
+conv1x1_nvp = true
+# conv1x1_nvp = false
+init_conv1x1_permutation = true
+# init_conv1x1_permutation = false
+opt = GlowOptions(; cl_activation=SigmoidNewLayer(T(α)),
+                    cl_affine=cl_affine,
+                    init_cl_id=init_cl_id,
+                    conv1x1_nvp=conv1x1_nvp,
+                    init_conv1x1_permutation=init_conv1x1_permutation,
+                    T=T)
+nc = 2
+nc_hidden = 3
+depth = 2
+nscales = 2
+logdet = true
+# logdet = false
+N = Glow(nc, nc_hidden, depth, nscales; logdet=logdet, opt=opt)
 
 # Eval
 nx = 64
@@ -45,5 +51,11 @@ gradient_test_input(N, loss, X; step=step, rtol=rtol, invnet=true)
 gradient_test_pars(N, loss, X; step=step, rtol=rtol, invnet=true)
 
 # Forward (CPU vs GPU)
-N = Glow(nc, nc_hidden, depth, nscales; logdet=logdet, cl_id=cl_id, conv_orth=conv_orth, conv_id=conv_id, cl_affine=cl_affine, cl_activation=SigmoidNewLayer(Float32(α)), T=Float32)
+opt = GlowOptions(; cl_activation=SigmoidNewLayer(Float32(α)),
+                    cl_affine=cl_affine,
+                    init_cl_id=init_cl_id,
+                    conv1x1_nvp=conv1x1_nvp,
+                    init_conv1x1_permutation=init_conv1x1_permutation,
+                    T=Float32)
+N = Glow(nc, nc_hidden, depth, nscales; logdet=logdet, opt=opt)
 cpu_vs_gpu_test(N, size(X); rtol=1f-4, invnet=true)

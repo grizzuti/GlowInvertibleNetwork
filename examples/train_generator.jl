@@ -13,17 +13,17 @@ X = reshape(load("./data/AOMIC_data64x64.jld")["data"], 64, 64, 1, :) |> gpu
 ntrain = size(X, 4)
 
 # Create multiscale network
+opt = GlowOptions(; cl_activation=SigmoidNewLayer(0.5f0),
+                    cl_affine=true,
+                    init_cl_id=true,
+                    conv1x1_nvp=false,
+                    init_conv1x1_permutation=true,
+                    T=Float32)
+nc = 1
 nc_hidden = 512
 depth = 5
 nscales = 5
-cl_id = true
-# cl_id = false
-conv_orth = true
-# conv_orth = false
-conv_id = true
-# conv_id = false
-cl_activation = SigmoidNewLayer(0.5f0)
-G = Glow(1, nc_hidden, depth, nscales; conv_orth=conv_orth, cl_id=cl_id, cl_activation=cl_activation, conv_id=conv_id) |> gpu
+G = Glow(nc, nc_hidden, depth, nscales; opt=opt) |> gpu
 
 # Set loss function
 loss(X::AbstractArray{Float32,4}) = 0.5f0*norm(X)^2/size(X,4), X/size(X,4)
@@ -31,7 +31,7 @@ loss(X::AbstractArray{Float32,4}) = 0.5f0*norm(X)^2/size(X,4), X/size(X,4)
 # Setting optimizer options
 batch_size = 2^4
 nbatches = Int64(ntrain/batch_size)
-nepochs = 1000
+nepochs = 1
 lr = 1f-4
 lrmin = lr*0.0001
 decay_rate = 0.3
@@ -58,13 +58,12 @@ for e = 1:nepochs # epoch loop
 
         # Select mini-batch of data
         Xb = X[:,:,:,idx_e[:,b]]
-        # Xb .+= 0.01f0*CUDA.randn(Float32, size(Xb))
 
         # Evaluate network
-        Zb, lgdet = G.forward(Xb)
+        Zb, lgdt = G.forward(Xb)
 
         # Evaluate objective and gradients
-        floss[b,e], ΔZb = loss(Zb); floss_logdet[b,e] = floss[b,e]-lgdet
+        floss[b,e], ΔZb = loss(Zb); floss_logdet[b,e] = floss[b,e]-lgdt
         print("Iter: epoch=", e, "/", nepochs, ", batch=", b, "/", nbatches, "; f = ", floss_logdet[b,e], "\n")
 
         # Reload previous state to prevent divergence

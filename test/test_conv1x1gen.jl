@@ -7,11 +7,12 @@ T = Float64
 
 nc = 4
 logdet = true
-orthogonal = true
-# orthogonal = false
-# init_id = true
-init_id = false
-N = Conv1x1gen(nc; logdet=logdet, orthogonal=orthogonal, init_id=init_id, T=T)
+nvp = true
+# nvp = false
+init_permutation = true
+# init_permutation = false
+opt = Conv1x1genOptions(; nvp=nvp, init_permutation=init_permutation, T=T)
+N = Conv1x1gen(nc; logdet=logdet, opt=opt)
 
 # Eval
 nx = 64
@@ -36,8 +37,9 @@ gradient_test_input(N, loss, X; step=step, rtol=rtol, invnet=true)
 gradient_test_pars(N, loss, X; step=step, rtol=rtol, invnet=true)
 
 # Forward (CPU vs GPU)
-N = Conv1x1gen(nc; logdet=logdet, orthogonal=orthogonal, T=Float32)
+opt = Conv1x1genOptions(; nvp=nvp, init_permutation=init_permutation, T=Float32)
+N = Conv1x1gen(nc; logdet=logdet, opt=opt)
 N.l.data = randn(Float32, size(N.l.data))
 N.u.data = randn(Float32, size(N.u.data))
-N.orthogonal && (N.s.data = randn(Float32, size(N.s.data)))
+N.nvp && (N.s.data = randn(Float32, size(N.s.data)))
 cpu_vs_gpu_test(N, size(X); rtol=1f-4)

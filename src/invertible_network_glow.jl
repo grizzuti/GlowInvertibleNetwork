@@ -1,4 +1,4 @@
-export Glow
+export Glow, GlowOptions
 
 struct Glow{T} <: InvertibleNetwork
     depth::Int64
@@ -10,13 +10,39 @@ end
 
 @Flux.functor Glow
 
-function Glow(nc::Int64, nc_hidden::Int64, depth::Int64, nscales::Int64; logdet::Bool=true, cl_activation::Union{Nothing,InvertibleNetworks.ActivationFunction}=SigmoidLayer(), cl_affine::Bool=true, cl_id::Bool=true, conv_id::Bool=true, conv_orth::Bool=false, T::DataType=Float32)
+struct GlowOptions{T<:Real}
+    fs_options::FlowStepOptions{T}
+end
+
+function GlowOptions(; k1::Int64=3, p1::Int64=1, s1::Int64=1, actnorm1::Bool=true,
+                       k2::Int64=1, p2::Int64=0, s2::Int64=1, actnorm2::Bool=true,
+                       k3::Int64=3, p3::Int64=1, s3::Int64=1,
+                       weight_std1::Real=0.05,
+                       weight_std2::Real=0.05,
+                       weight_std3::Union{Nothing,Real}=nothing,
+                       logscale_factor::Real=3.0,
+                       cl_activation::Union{Nothing,InvertibleNetworks.ActivationFunction}=SigmoidNewLayer(),
+                       cl_affine::Bool=true,
+                       init_cl_id::Bool=true,
+                       conv1x1_nvp::Bool=true,
+                       init_conv1x1_permutation::Bool=true,
+                       T::DataType=Float32)
+
+    opt_cb = ConvolutionalBlockOptions(; k1=k1, p1=p1, s1=s1, actnorm1=actnorm1, k2=k2, p2=p2, s2=s2, actnorm2=actnorm2, k3=k3, p3=p3, s3=s3, weight_std1=weight_std1, weight_std2=weight_std2, weight_std3=weight_std3, logscale_factor=logscale_factor, init_zero=init_cl_id, T=T)
+    opt_cl = CouplingLayerAffineOptions(; options_convblock=opt_cb, activation=cl_activation, affine=cl_affine)
+    opt_conv1x1 = Conv1x1genOptions(; nvp=conv1x1_nvp, init_permutation=init_conv1x1_permutation, T=T)
+
+    return GlowOptions{T}(FlowStepOptions{T}(opt_cl, opt_conv1x1))
+
+end
+
+function Glow(nc::Int64, nc_hidden::Int64, depth::Int64, nscales::Int64; logdet::Bool=true, opt::GlowOptions{T}=GlowOptions()) where T
 
     FS = Array{FlowStep{T},2}(undef,depth,nscales)
     nc = 4*nc
     for l = 1:nscales
         for k = 1:depth
-            FS[k,l] = FlowStep(nc, nc_hidden; logdet=logdet, cl_activation=cl_activation, cl_id=cl_id, cl_affine=cl_affine, conv_orth=conv_orth, conv_id=conv_id, T=T)
+            FS[k,l] = FlowStep(nc, nc_hidden; logdet=logdet, opt=opt.fs_options)
         end
         nc = 2*nc
     end

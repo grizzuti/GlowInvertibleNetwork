@@ -1,4 +1,4 @@
-export FlowStep
+export FlowStep, FlowStepOptions
 
 struct FlowStep{T} <: NeuralNetLayer
     AN::ActNormPar{T}
@@ -9,11 +9,18 @@ end
 
 @Flux.functor FlowStep
 
-function FlowStep(nc, nc_hidden; logdet::Bool=true, cl_activation::Union{Nothing,InvertibleNetworks.ActivationFunction}=SigmoidLayer(), cl_id::Bool=true, conv_id::Bool=false, cl_affine::Bool=true, conv_orth::Bool=false, T::DataType=Float32)
+struct FlowStepOptions{T<:Real}
+    cl_options::CouplingLayerAffineOptions{T}
+    conv1x1_options::Conv1x1genOptions{T}
+end
+
+FlowStepOptions(; T::DataType=Float32) = FlowStepOptions{T}(CouplingLayerAffineOptions(; T=T), Conv1x1genOptions(; T=T))
+
+function FlowStep(nc, nc_hidden; logdet::Bool=true, opt::FlowStepOptions{T}=FlowStepOptions()) where T
 
     AN = ActNormPar(nc; logdet=logdet, T=T)
-    C  = Conv1x1gen(nc; logdet=logdet, orthogonal=conv_orth, init_id=conv_id, T=T)
-    CL = CouplingLayerAffine(nc, nc_hidden; logdet=logdet, activation=cl_activation, init_id=cl_id, affine=cl_affine, T=T)
+    C  = Conv1x1gen(nc; logdet=logdet, opt=opt.conv1x1_options)
+    CL = CouplingLayerAffine(nc, nc_hidden; logdet=logdet, opt=opt.cl_options)
     return FlowStep{T}(AN,C,CL,logdet)
 
 end

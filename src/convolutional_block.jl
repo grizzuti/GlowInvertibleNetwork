@@ -1,4 +1,4 @@
-export ConvolutionalBlock
+export ConvolutionalBlock, ConvolutionalBlockOptions
 
 struct ConvolutionalBlock{T} <: NeuralNetLayer
     CL1::ConvolutionalLayer{T}
@@ -10,16 +10,34 @@ end
 
 @Flux.functor ConvolutionalBlock
 
-function ConvolutionalBlock(nc_in, nc_out, nc_hidden; k1=3, p1=1, s1=1, actnorm1::Bool=true, k2=1, p2=0, s2=1, actnorm2::Bool=true, k3=3, p3=1, s3=1, weight_std1::Real=0.05, weight_std2::Real=0.05, logscale_factor::Real=3.0, init_zero::Bool=true, T::DataType=Float32)
+struct ConvolutionalBlockOptions{T<:Real}
+    k::Vector{Int64}
+    p::Vector{Int64}
+    s::Vector{Int64}
+    actnorm::Vector{Bool}
+    weight_std::Vector{T}
+    logscale_factor::T
+    init_zero::Bool
+end
 
-    CL1 = ConvolutionalLayer(nc_in, nc_hidden; k=k1, p=p1, s=s1, bias=~actnorm1, weight_std=weight_std1, T=T)
-    actnorm1 ? (A1 = ActNormPar(nc_hidden; logdet=false, T=T)) : (A1 = nothing)
-    CL2 = ConvolutionalLayer(nc_hidden, nc_hidden; k=k2, p=p2, s=s2, bias=~actnorm2, weight_std=weight_std2, T=T)
-    actnorm2 ? (A2 = ActNormPar(nc_hidden; logdet=false, T=T)) : (A2 = nothing)
-    if init_zero
-        CL3 = ConvolutionalLayer0(nc_hidden, nc_out; k=k3, p=p3, s=s3, logscale_factor=logscale_factor, T=T)
+ConvolutionalBlockOptions(; k1::Int64=3, p1::Int64=1, s1::Int64=1, actnorm1::Bool=true, weight_std1::Real=0.05,
+                            k2::Int64=1, p2::Int64=0, s2::Int64=1, actnorm2::Bool=true, weight_std2::Real=0.05,
+                            k3::Int64=3, p3::Int64=1, s3::Int64=1,                      weight_std3::Union{Nothing,Real}=nothing,
+                            logscale_factor::Real=3.0,
+                            init_zero::Bool=true,
+                            T::DataType=Float32) =
+    ConvolutionalBlockOptions{T}([k1,k2,k3], [p1,p2,p3], [s1,s2,s3], [actnorm1,actnorm2], [T(weight_std1),T(weight_std2),isnothing(weight_std3) ? T(weight_std2) : T(weight_std3)], T(logscale_factor), init_zero)
+
+function ConvolutionalBlock(nc_in, nc_out, nc_hidden; opt::ConvolutionalBlockOptions{T}=ConvolutionalBlockOptions()) where T
+
+    CL1 = ConvolutionalLayer(nc_in, nc_hidden; k=opt.k[1], p=opt.p[1], s=opt.s[1], bias=~opt.actnorm[1], weight_std=opt.weight_std[1], T=T)
+    opt.actnorm[1] ? (A1 = ActNormPar(nc_hidden; logdet=false, T=T)) : (A1 = nothing)
+    CL2 = ConvolutionalLayer(nc_hidden, nc_hidden; k=opt.k[2], p=opt.p[2], s=opt.s[2], bias=~opt.actnorm[2], weight_std=opt.weight_std[2], T=T)
+    opt.actnorm[2] ? (A2 = ActNormPar(nc_hidden; logdet=false, T=T)) : (A2 = nothing)
+    if opt.init_zero
+        CL3 = ConvolutionalLayer0(nc_hidden, nc_out; k=opt.k[3], p=opt.p[3], s=opt.s[3], logscale_factor=opt.logscale_factor, T=T)
     else
-        CL3 = ConvolutionalLayer0(nc_hidden, nc_out; k=k3, p=p3, s=s3, logscale_factor=logscale_factor, weight_std=weight_std2, T=T)
+        CL3 = ConvolutionalLayer0(nc_hidden, nc_out; k=opt.k[3], p=opt.p[3], s=opt.s[3], logscale_factor=opt.logscale_factor, weight_std=opt.weight_std[3], T=T)
     end
 
     return ConvolutionalBlock{T}(CL1, A1, CL2, A2, CL3)

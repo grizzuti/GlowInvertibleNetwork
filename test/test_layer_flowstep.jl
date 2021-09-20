@@ -8,15 +8,31 @@ T = Float64
 nc = 2
 nc_hidden = 3
 logdet = true
-# cl_id = true
-cl_id = false
-# conv_orth = true
-conv_orth = false
-# conv_id = true
-conv_id = false
-cl_affine = true
-# cl_affine = false
-N = FlowStep(nc, nc_hidden; logdet=logdet, T=T, cl_activation=SigmoidNewLayer(T(0.5)), cl_affine=cl_affine, cl_id=cl_id, conv_orth=conv_orth)
+# logdet = false
+
+k = 3
+p = 1
+s = 1
+actnorm = true
+# actnorm = false
+weight_std = 0.05
+logscale_factor = 3.0
+init_zero = true
+# init_zero = false
+opt_cb = ConvolutionalBlockOptions(; k1=k, p1=p, s1=s, actnorm1=actnorm, k2=k, p2=p, s2=s, actnorm2=actnorm, k3=k, p3=p, s3=s, weight_std1=weight_std, weight_std2=weight_std, weight_std3=weight_std, logscale_factor=logscale_factor, init_zero=init_zero, T=T)
+affine = true
+# affine = false
+α = 0.5
+opt_cl = CouplingLayerAffineOptions(; options_convblock=opt_cb, activation=SigmoidNewLayer(T(α)), affine=affine)
+
+nvp = true
+# nvp = false
+init_permutation = true
+# init_permutation = false
+opt_c1x1 = Conv1x1genOptions(; nvp=nvp, init_permutation=init_permutation, T=T)
+
+opt = FlowStepOptions{T}(opt_cl, opt_c1x1)
+N = FlowStep(nc, nc_hidden; logdet=logdet, opt=opt)
 
 # Eval
 nx = 16
@@ -41,5 +57,10 @@ gradient_test_input(N, loss, X; step=step, rtol=rtol, invnet=true)
 gradient_test_pars(N, loss, X; step=step, rtol=rtol, invnet=true)
 
 # Forward (CPU vs GPU)
-N = FlowStep(nc, nc_hidden; logdet=logdet, T=Float32, cl_activation=SigmoidNewLayer(0.5f0), cl_id=cl_id)
+opt_cb = ConvolutionalBlockOptions(; k1=k, p1=p, s1=s, actnorm1=actnorm, k2=k, p2=p, s2=s, actnorm2=actnorm, k3=k, p3=p, s3=s, weight_std1=weight_std, weight_std2=weight_std, weight_std3=weight_std, logscale_factor=logscale_factor, init_zero=init_zero, T=Float32)
+opt_cl = CouplingLayerAffineOptions(; options_convblock=opt_cb, activation=SigmoidNewLayer(Float32(α)), affine=affine)
+opt_c1x1 = Conv1x1genOptions(; nvp=nvp, init_permutation=init_permutation, T=Float32)
+opt = FlowStepOptions(opt_cl, opt_c1x1)
+N = FlowStep(nc, nc_hidden; logdet=logdet, opt=opt)
+
 cpu_vs_gpu_test(N, size(X); rtol=1f-4, invnet=true)
