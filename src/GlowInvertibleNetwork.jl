@@ -15,5 +15,6 @@ include("./invertible_layer_conv1x1gen.jl")
 include("./invertible_layer_claffine.jl")
 include("./invertible_layer_flowstep.jl")
 include("./invertible_network_glow.jl")
+include("./invertible_network_glowlowdim.jl")
 
 end
