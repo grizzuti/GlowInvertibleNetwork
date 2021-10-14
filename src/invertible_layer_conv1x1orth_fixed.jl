@@ -14,7 +14,7 @@ function Conv1x1orth_fixed(nc::Int64; logdet::Bool=true, T::DataType=Float32)
 
     P = Array(qr(randn(T, nc, nc)).Q)
     Pinv = P\idmat(T, nc)
-    return Conv1x1orth_fixed{T}(nc, P, Pinv, Parameter([T(0)], [T(0)]), logdet)
+    return Conv1x1orth_fixed{T}(nc, P, Pinv, Parameter([T(0)]), logdet)
 
 end
 
@@ -32,6 +32,7 @@ function backward(ΔY::AbstractArray{T,4}, Y::AbstractArray{T,4}, C::Conv1x1orth
     # Backpropagating input
     ΔX = conv1x1(ΔY, toConcreteArray(C.P'))
     X = inverse(Y, C)
+    C.p.grad = [T(0)]
     return ΔX, X
 
 end
