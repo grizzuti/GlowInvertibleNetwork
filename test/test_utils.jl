@@ -38,7 +38,6 @@ function gradient_test_pars(G, loss::Function, X::AbstractArray{T}; step::T=1e-4
 
     # Computing gradients
     hasfield(typeof(G), :logdet) ? (logdet = G.logdet) : (logdet = false)
-    # G isa Conv1x1gen && (G.init_weight! = true)
     logdet ? ((Y, _) = G.forward(X)) : (Y = G.forward(X))
     _, ΔY = loss(Y)
     invnet ? ((ΔX, _) = G.backward(ΔY, Y)) : (ΔX = G.backward(ΔY, X))
@@ -46,13 +45,11 @@ function gradient_test_pars(G, loss::Function, X::AbstractArray{T}; step::T=1e-4
 
     # Test (wrt pars)
     set_params!(G, θ+T(0.5)*step*dθ)
-    # G isa Conv1x1gen && (G.init_weight! = true)
     logdet ? ((Yp1, logdet_p1) = G.forward(X)) : (Yp1 = G.forward(X))
     lp1, _ = loss(Yp1)
     logdet && (lp1 -= logdet_p1)
 
     set_params!(G, θ-T(0.5)*step*dθ)
-    # G isa Conv1x1gen && (G.init_weight! = true)
     logdet ? ((Ym1, logdet_m1) = G.forward(X)) : (Ym1 = G.forward(X))
     lm1, _ = loss(Ym1)
     logdet && (lm1 -= logdet_m1)

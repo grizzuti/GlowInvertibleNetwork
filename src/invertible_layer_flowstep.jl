@@ -2,7 +2,7 @@ export FlowStep, FlowStepOptions
 
 struct FlowStep{T} <: NeuralNetLayer
     AN::ActNormPar{T}
-    C::Conv1x1gen{T}
+    C::Union{Conv1x1gen{T},Conv1x1orth_fixed{T}}
     CL::CouplingLayerAffine{T}
     logdet::Bool
 end
@@ -11,15 +11,20 @@ end
 
 struct FlowStepOptions{T<:Real}
     cl_options::CouplingLayerAffineOptions{T}
-    conv1x1_options::Conv1x1genOptions{T}
+    conv1x1_options::Union{Nothing,Conv1x1genOptions{T}}
 end
 
-FlowStepOptions(; T::DataType=Float32) = FlowStepOptions{T}(CouplingLayerAffineOptions(; T=T), Conv1x1genOptions(; T=T))
+# FlowStepOptions(; T::DataType=Float32) = FlowStepOptions{T}(CouplingLayerAffineOptions(; T=T), Conv1x1genOptions(; T=T))
+FlowStepOptions(; T::DataType=Float32) = FlowStepOptions{T}(CouplingLayerAffineOptions(; T=T), nothing)
 
 function FlowStep(nc, nc_hidden; logdet::Bool=true, opt::FlowStepOptions{T}=FlowStepOptions()) where T
 
     AN = ActNormPar(nc; logdet=logdet, T=T)
-    C  = Conv1x1gen(nc; logdet=logdet, opt=opt.conv1x1_options)
+    if isnothing(opt.conv1x1_options)
+        C = Conv1x1orth_fixed(nc; logdet=logdet, T=T)
+    else
+        C  = Conv1x1gen(nc; logdet=logdet, opt=opt.conv1x1_options)
+    end
     CL = CouplingLayerAffine(nc, nc_hidden; logdet=logdet, opt=opt.cl_options)
     return FlowStep{T}(AN,C,CL,logdet)
 

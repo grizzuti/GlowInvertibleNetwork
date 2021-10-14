@@ -14,11 +14,14 @@ conv1x1_nvp = true
 # conv1x1_nvp = false
 init_conv1x1_permutation = true
 # init_conv1x1_permutation = false
+conv1x1_orth_fixed = true
+# conv1x1_orth_fixed = false
 opt = GlowOptions(; cl_activation=SigmoidNewLayer(T(α)),
                     cl_affine=cl_affine,
                     init_cl_id=init_cl_id,
                     conv1x1_nvp=conv1x1_nvp,
                     init_conv1x1_permutation=init_conv1x1_permutation,
+                    conv1x1_orth_fixed=conv1x1_orth_fixed,
                     T=T)
 nc = 2
 nc_hidden = 3

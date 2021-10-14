@@ -94,6 +94,7 @@ convweight(C::Conv1x1gen) = C.P'*(Array2Matrix(C.l.data, C.nc, C.inds_l)+idmat(C
 
 conv1x1(X::AbstractArray{T,4}, W::AbstractMatrix{T}) where T = conv(X, reshape(W, (1,1,size(W)...)); stride=(1,1), pad=(0,0))
 
+idmat(T::DataType, n::Int64) = Matrix{T}(I,n,n)
 function idmat(X::Array{T}; n::Union{Nothing,Int64}=nothing) where T
     n === nothing && (n = size(X,3))
     return Matrix{T}(I,n,n)
