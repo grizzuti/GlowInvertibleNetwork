@@ -2,18 +2,19 @@
 # Train generator on MRI images
 #################################################################################
 
-using LinearAlgebra, InvertibleNetworks, PyPlot, Flux, CUDA, JLD, GlowInvertibleNetwork
-import Flux.Optimise: Optimiser, ADAM, ExpDecay, update!
-using Random; Random.seed!(1)
+using LinearAlgebra, InvertibleNetworks, PyPlot, Flux, CUDA, JLD, GlowInvertibleNetwork, Random
+import Flux.Optimise: Optimiser, ADAM, ExpDecay, ClipNorm, update!
 include("./plotting_utils.jl")
 
 
 # Load data
-X = reshape(load("./data/AOMIC_data64x64.jld")["data"], 64, 64, 1, :) |> gpu
-ntrain = size(X, 4)
+nx,ny = 256,256
+data_filename = string("./data/AOMIC_data",nx,"x",ny,".jld")
+X = reshape(Float32.(load(data_filename)["data"]), nx,ny,1,:)
+ntrain = size(X,4)
 
 # Create multiscale network
-opt = GlowOptions(; cl_activation=SigmoidNewLayer(0.05f0),
+opt = GlowOptions(; cl_activation=SigmoidNewLayer(0.5f0),
                     cl_affine=true,
                     init_cl_id=true,
                     conv1x1_nvp=false,
@@ -23,36 +24,55 @@ opt = GlowOptions(; cl_activation=SigmoidNewLayer(0.05f0),
 nc = 1
 nc_hidden = 512
 depth = 5
-nscales = 5
-G = Glow(nc, nc_hidden, depth, nscales; opt=opt) |> gpu
+nscales = 7
+G = Glow(nc, nc_hidden, depth, nscales; opt=opt)
 
-# Set loss function
-loss(X::AbstractArray{Float32,4}) = 0.5f0*norm(X)^2/size(X,4), X/size(X,4)
+# Artificial data noise parameters
+α = 0.1f0
+β = 0.5f0
+αmin = 0.01f0
 
 # Setting optimizer options
-batch_size = 2^4
+batch_size = 2^2
 nbatches = Int64(ntrain/batch_size)
-nepochs = 1000
+nepochs = 2^8
 lr = 1f-4
-# lrmin = lr*0.0001
-lrmin = lr*0.99
-decay_rate = 0.3
-lr_step = Int64(floor(nepochs*nbatches*log(decay_rate)/log(lrmin/lr)))
-opt = Optimiser(ExpDecay(lr, decay_rate, lr_step, lrmin), ADAM(lr))
-grad_clip = false; grad_max = 0.0001f0
-intermediate_save = 10
+lr_min = lr*1f-2
+decay_rate = exp(log(lr_min/lr)/(nepochs*nbatches))
+grad_max = lr*1f7
+opt = Optimiser(ClipNorm(grad_max), ExpDecay(lr, decay_rate, 1, lr_min), ADAM(lr))
+intermediate_save = 1
+
+# Set loss function
+loss(X::AbstractArray{T,4}) where T = T(0.5)*norm(X)^2/size(X,4), X/size(X,4)
+
+# Setting/loading intermediate/final saves
+save_folder = "./results/MRIgen/"
+save_intermediate_filename = string(save_folder, "results_gen_intermediate_",nx,"x",ny,".jld")
+save_filename = string(save_folder, "results_gen_",nx,"x",ny,".jld")
+if isfile(save_intermediate_filename)
+    θ = load(save_intermediate_filename)["theta"]
+    set_params!(G, θ)
+    # G.forward(randn(Float32, nx,ny,1,batch_size))
+    floss = load(save_intermediate_filename)["floss"]
+    floss_full = load(save_intermediate_filename)["floss_full"]
+    last_epoch = load(save_intermediate_filename)["last_epoch"]
+    lr *= decay_rate^(last_epoch-1)
+else
+    floss = zeros(Float32, nbatches, nepochs)
+    floss_full = zeros(Float32, nbatches, nepochs)
+    last_epoch = 1
+end
+G = G |> gpu
 
 # Test latent
-ntest = batch_size
-Ztest = randn(Float32, 64, 64, 1, ntest) |> gpu
+Ztest = randn(Float32, nx,ny,1,batch_size)
 
 # Training
-floss = zeros(Float32, nbatches, nepochs)
-floss_logdet = zeros(Float32, nbatches, nepochs)
-θ = get_params(G)
+for e = last_epoch:nepochs # epoch loop
 
-global α = nothing # calibration factor
-for e = 1:nepochs # epoch loop
+    # Set backup state
+    θ_backup = get_params(G) |> cpu
 
     # Select random data traversal for current epoch
     idx_e = reshape(randperm(ntrain), batch_size, nbatches)
@@ -60,57 +80,51 @@ for e = 1:nepochs # epoch loop
     for b = 1:nbatches # batch loop
 
         # Select mini-batch of data
-        Xb = X[:,:,:,idx_e[:,b]]
+        Xb = X[:,:,:,idx_e[:,b]] |> gpu
+
+        # Artificial noise
+        noise_lvl = α/((e-1)*nbatches+b)^β+αmin
+        Xb .+= noise_lvl*CUDA.randn(Float32, size(Xb))
 
         # Evaluate network
         Zb, lgdt = G.forward(Xb)
-        # (α === nothing) && (global α = sqrt(2f0*prod(size(Zb)[1:2])/(2f0*loss(Zb)[1])))
-        # (b == 1) && (global α = sqrt(prod(size(Zb)[1:2])/(2f0*loss(Zb)[1])))
-        # global α = sqrt(prod(size(Zb)[1:2])/(2f0*loss(Zb)[1]))
-        # Zb *= α
 
         # Evaluate objective and gradients
-        floss[b,e], ΔZb = loss(Zb); floss_logdet[b,e] = floss[b,e]-lgdt
-        print("Iter: epoch=", e, "/", nepochs, ", batch=", b, "/", nbatches, "; f_full = ", floss_logdet[b,e], "; f_z = ", floss[b,e], "\n")
+        floss[b,e], ΔZb = loss(Zb)
+        floss_full[b,e] = floss[b,e]-lgdt
 
-        # Reload previous state to prevent divergence
-        if e > 1 && (isnan(floss_logdet[b,e]) || isinf(floss_logdet[b,e]))
-            print("Ooops!\n")
-            set_params!(G, gpu(load("./results/MRIgen/results_gen_intermediate.jld")["theta"]))
-            break
+        # Print current iteration
+        print("Iter: epoch=", e, "/", nepochs, ", batch=", b, "/", nbatches, "; f_full = ", floss_full[b,e], "; f_z = ", floss[b,e], "\n")
+
+        # Check instability status
+        if isnan(floss_full[b,e]) || isinf(floss_full[b,e])
+            set_params!(G, gpu(θ_backup))
+            save(save_intermediate_filename, "theta", cpu(get_params(G)), "floss_full", floss_full, "floss", floss, "last_epoch", e)
+            throw("NaN or Inf values!\n")
         end
 
         # Computing gradient
         G.backward(ΔZb, Zb)
-        # G.backward(α.*ΔZb, Zb)
 
         # Update params
-        for p in θ
-            grad_clip && (norm(p.grad) > grad_max) && (p.grad *= grad_max/norm(p.grad)) # Gradient clipping
+        for p in get_params(G)
             update!(opt, p.data, p.grad)
             p.grad = nothing # clear gradient
         end
 
     end # end batch loop
 
-    # Saving intermediate results
-    save("./results/MRIgen/results_gen_intermediate.jld", "theta", cpu(θ), "floss_logdet", floss_logdet, "floss", floss)
+    # Saving and plotting intermediate results
+    save(save_intermediate_filename, "theta", cpu(get_params(G)), "floss_full", floss_full, "floss", floss, "last_epoch", e+1)
     if mod(e, intermediate_save) == 0
-        X_test = G.inverse(Ztest) |> cpu
-        plot_image(X_test[:, :, 1, 1]; figsize=(5,5), vmin=min(X_test[:,:,1,1]...), vmax=max(X_test[:,:,1,1]...), title=L"$\mathbf{x}$", path="results/MRIgen/new_samples_intermediate.png")
-        plot_loss(range(0, nepochs, length=length(floss_logdet[:])), vec(floss_logdet); figsize=(7, 2.5), color="#d48955", title="Negative log-likelihood", path="results/MRIgen/loss_intermediate.png", xlabel="Epochs", ylabel="Training objective")
-        plot_loss(range(0, nepochs, length=length(floss[:])), vec(floss); figsize=(7, 2.5), color="#d48955", title="Negative log-likelihood", path="results/MRIgen/loss_intermediate_z.png", xlabel="Epochs", ylabel="Training objective")
+        X_test = G.inverse(gpu(Ztest)) |> cpu
+        plot_image(X_test[:, :, 1, 1]; figsize=(5,5), vmin=min(X_test[:,:,1,1]...), vmax=max(X_test[:,:,1,1]...), title=L"$\mathbf{x}$", path=string(save_folder, "new_samples_intermediate_",nx,"x", ny,".png"))
+        plot_loss(range(0, nepochs, length=length(floss_full[:,1:e])), vec(floss_full[:,1:e]); figsize=(7, 2.5), color="#d48955", title="Negative log-likelihood", path=string(save_folder, "loss_intermediate_",nx,"x", ny,".png"), xlabel="Epochs", ylabel="Training objective")
+        plot_loss(range(0, nepochs, length=length(floss[:,1:e])), vec(floss[:,1:e]); figsize=(7, 2.5), color="#d48955", title="Negative log-likelihood", path=string(save_folder, "loss_intermediate_z_",nx,"x", ny,".png"), xlabel="Epochs", ylabel="Training objective")
     end
 
 end # end epoch loop
 
-# Generate random samples
-G = G |> cpu
-Z = randn(Float32,64,64,1,batch_size)
-X_new = G.inverse(Z)
-
-# Plotting
-plot_image(X_new[:, :, 1, 1]; figsize=(5,5), vmin=min(X_new[:,:,1,1]...), vmax=max(X_new[:,:,1,1]...), title=L"$\mathbf{x}$", path="results/MRIgen/new_samples.png")
-plot_loss(range(0, nepochs, length=length(floss_logdet[:])), vec(floss_logdet); figsize=(7, 2.5), color="#d48955", title="Negative log-likelihood", path="results/MRIgen/loss.png", xlabel="Epochs", ylabel="Training objective")
-plot_loss(range(0, nepochs, length=length(floss[:])), vec(floss); figsize=(7, 2.5), color="#d48955", title="Negative log-likelihood", path="results/MRIgen/loss_z.png", xlabel="Epochs", ylabel="Training objective")
-save("./results/MRIgen/results_gen.jld", "theta", cpu(θ), "floss_logdet", floss_logdet, "floss", floss, "samples", X_new)
+# Final save
+save(save_filename, "theta", cpu(get_params(G)), "floss_full", floss_full, "floss", floss)
+rm(save_intermediate_filename)
