@@ -13,6 +13,11 @@ data_filename = string("./data/AOMIC_data",nx,"x",ny,".jld")
 X = reshape(Float32.(load(data_filename)["data"]), nx,ny,1,:)
 ntrain = size(X,4)
 
+# Setting/loading intermediate/final saves
+save_folder = "./results/MRIgen/"
+save_intermediate_filename = string(save_folder, "results_gen_intermediate_",nx,"x",ny,".jld")
+save_filename = string(save_folder, "results_gen_",nx,"x",ny,".jld")
+
 # Create multiscale network
 opt = GlowOptions(; cl_activation=SigmoidNewLayer(0.5f0),
                     cl_affine=true,
@@ -25,7 +30,10 @@ nc = 1
 nc_hidden = 512
 depth = 5
 nscales = 7
-G = Glow(nc, nc_hidden, depth, nscales; opt=opt)
+G = Glow(nc, nc_hidden, depth, nscales; opt=opt) |> gpu
+
+# Set loss function
+loss(X::AbstractArray{T,4}) where T = T(0.5)*norm(X)^2/size(X,4), X/size(X,4)
 
 # Artificial data noise parameters
 α = 0.1f0
@@ -35,7 +43,7 @@ G = Glow(nc, nc_hidden, depth, nscales; opt=opt)
 # Setting optimizer options
 batch_size = 2^2
 nbatches = Int64(ntrain/batch_size)
-nepochs = 2^8
+nepochs = 2^9
 lr = 1f-4
 lr_min = lr*1f-2
 decay_rate = exp(log(lr_min/lr)/(nepochs*nbatches))
@@ -43,33 +51,11 @@ grad_max = lr*1f7
 opt = Optimiser(ClipNorm(grad_max), ExpDecay(lr, decay_rate, 1, lr_min), ADAM(lr))
 intermediate_save = 1
 
-# Set loss function
-loss(X::AbstractArray{T,4}) where T = T(0.5)*norm(X)^2/size(X,4), X/size(X,4)
-
-# Setting/loading intermediate/final saves
-save_folder = "./results/MRIgen/"
-save_intermediate_filename = string(save_folder, "results_gen_intermediate_",nx,"x",ny,".jld")
-save_filename = string(save_folder, "results_gen_",nx,"x",ny,".jld")
-if isfile(save_intermediate_filename)
-    θ = load(save_intermediate_filename)["theta"]
-    set_params!(G, θ)
-    # G.forward(randn(Float32, nx,ny,1,batch_size))
-    floss = load(save_intermediate_filename)["floss"]
-    floss_full = load(save_intermediate_filename)["floss_full"]
-    last_epoch = load(save_intermediate_filename)["last_epoch"]
-    lr *= decay_rate^(last_epoch-1)
-else
-    floss = zeros(Float32, nbatches, nepochs)
-    floss_full = zeros(Float32, nbatches, nepochs)
-    last_epoch = 1
-end
-G = G |> gpu
-
-# Test latent
-Ztest = randn(Float32, nx,ny,1,batch_size)
-
 # Training
-for e = last_epoch:nepochs # epoch loop
+floss = zeros(Float32, nbatches, nepochs)
+floss_full = zeros(Float32, nbatches, nepochs)
+Ztest = randn(Float32, nx,ny,1,batch_size)
+for e = 1:nepochs # epoch loop
 
     # Set backup state
     θ_backup = get_params(G) |> cpu
@@ -99,7 +85,7 @@ for e = last_epoch:nepochs # epoch loop
         # Check instability status
         if isnan(floss_full[b,e]) || isinf(floss_full[b,e])
             set_params!(G, gpu(θ_backup))
-            save(save_intermediate_filename, "theta", cpu(get_params(G)), "floss_full", floss_full, "floss", floss, "last_epoch", e)
+            save(save_intermediate_filename, "theta", cpu(get_params(G)), "floss_full", floss_full, "floss", floss)
             throw("NaN or Inf values!\n")
         end
 
@@ -115,16 +101,15 @@ for e = last_epoch:nepochs # epoch loop
     end # end batch loop
 
     # Saving and plotting intermediate results
-    save(save_intermediate_filename, "theta", cpu(get_params(G)), "floss_full", floss_full, "floss", floss, "last_epoch", e+1)
+    save(save_intermediate_filename, "theta", cpu(get_params(G)), "floss_full", floss_full, "floss", floss)
     if mod(e, intermediate_save) == 0
         X_test = G.inverse(gpu(Ztest)) |> cpu
         plot_image(X_test[:, :, 1, 1]; figsize=(5,5), vmin=min(X_test[:,:,1,1]...), vmax=max(X_test[:,:,1,1]...), title=L"$\mathbf{x}$", path=string(save_folder, "new_samples_intermediate_",nx,"x", ny,".png"))
-        plot_loss(range(0, nepochs, length=length(floss_full[:,1:e])), vec(floss_full[:,1:e]); figsize=(7, 2.5), color="#d48955", title="Negative log-likelihood", path=string(save_folder, "loss_intermediate_",nx,"x", ny,".png"), xlabel="Epochs", ylabel="Training objective")
-        plot_loss(range(0, nepochs, length=length(floss[:,1:e])), vec(floss[:,1:e]); figsize=(7, 2.5), color="#d48955", title="Negative log-likelihood", path=string(save_folder, "loss_intermediate_z_",nx,"x", ny,".png"), xlabel="Epochs", ylabel="Training objective")
+        plot_loss(range(0, e, length=length(floss_full[:,1:e])), vec(floss_full[:,1:e]); figsize=(7, 2.5), color="#d48955", title="Negative log-likelihood", path=string(save_folder, "loss_intermediate_",nx,"x", ny,".png"), xlabel="Epochs", ylabel="Training objective")
+        plot_loss(range(0, e, length=length(floss[:,1:e])), vec(floss[:,1:e]); figsize=(7, 2.5), color="#d48955", title="Negative log-likelihood", path=string(save_folder, "loss_intermediate_z_",nx,"x", ny,".png"), xlabel="Epochs", ylabel="Training objective")
     end
 
 end # end epoch loop
 
 # Final save
 save(save_filename, "theta", cpu(get_params(G)), "floss_full", floss_full, "floss", floss)
-rm(save_intermediate_filename)
