@@ -47,9 +47,7 @@ nepochs = 2^9
 lr = 1f-4
 lr_min = lr*1f-2
 decay_rate = exp(log(lr_min/lr)/(nepochs*nbatches))
-# grad_max = lr*1f7
-# opt = Optimiser(ClipNorm(grad_max), ExpDecay(lr, decay_rate, 1, lr_min), ADAM(lr))
-λ = 1f-2
+λ = 1f-3
 opt = Optimiser(ExpDecay(lr, decay_rate, 1, lr_min), ADAM(lr))
 intermediate_save = 1
 
@@ -64,6 +62,9 @@ for e = 1:nepochs # epoch loop
 
     # Select random data traversal for current epoch
     idx_e = reshape(randperm(ntrain), batch_size, nbatches)
+
+    # Epoch-adaptive regularization weight
+    λ_adaptive = λ*nx*ny/norm(θ_backup)^2
 
     for b = 1:nbatches # batch loop
 
@@ -80,9 +81,6 @@ for e = 1:nepochs # epoch loop
         # Evaluate objective and gradients
         floss[b,e], ΔZb = loss(Zb)
         floss_full[b,e] = floss[b,e]-lgdt
-
-        # Epoch-adaptive regularization weight
-        λ_adaptive = λ*floss[1,e]/(0.5f0*norm(θ_backup)^2)
 
         # Computing gradient
         G.backward(ΔZb, Zb)
