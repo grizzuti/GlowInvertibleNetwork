@@ -2,8 +2,8 @@ module GlowInvertibleNetwork
 
 using LinearAlgebra, CUDA, Flux, InvertibleNetworks, Statistics, ExponentialUtilities
 import Flux: gpu, cpu
-import InvertibleNetworks: forward, inverse, backward, clear_grad!, get_params
-
+import InvertibleNetworks: forward, inverse, backward,backward_inv, clear_grad!, get_params
+include("../examples/plotting_utils.jl")
 include("./parameter_tricks.jl")
 include("./details_fix.jl")
 include("./activation.jl")

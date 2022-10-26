@@ -17,7 +17,7 @@ end
 # FlowStepOptions(; T::DataType=Float32) = FlowStepOptions{T}(CouplingLayerAffineOptions(; T=T), Conv1x1genOptions(; T=T))
 FlowStepOptions(; T::DataType=Float32) = FlowStepOptions{T}(CouplingLayerAffineOptions(; T=T), nothing)
 
-function FlowStep(nc, nc_hidden; logdet::Bool=true, opt::FlowStepOptions{T}=FlowStepOptions()) where T
+function FlowStep(nc, nc_hidden;ndims=2, logdet::Bool=true, opt::FlowStepOptions{T}=FlowStepOptions()) where T
 
     AN = ActNormPar(nc; logdet=logdet, T=T)
     if isnothing(opt.conv1x1_options)
@@ -25,12 +25,12 @@ function FlowStep(nc, nc_hidden; logdet::Bool=true, opt::FlowStepOptions{T}=Flow
     else
         C  = Conv1x1gen(nc; logdet=logdet, opt=opt.conv1x1_options)
     end
-    CL = CouplingLayerAffine(nc, nc_hidden; logdet=logdet, opt=opt.cl_options)
+    CL = CouplingLayerAffine(nc, nc_hidden;ndims=ndims, logdet=logdet, opt=opt.cl_options)
     return FlowStep{T}(AN,C,CL,logdet)
 
 end
 
-function forward(X::AbstractArray{T,4}, LG::FlowStep{T}) where T
+function forward(X::AbstractArray{T,N}, LG::FlowStep{T}) where {T,N}
 
     if LG.logdet
         X, logdet1 = LG.AN.forward(X)
@@ -46,7 +46,14 @@ function forward(X::AbstractArray{T,4}, LG::FlowStep{T}) where T
 
 end
 
-function inverse(Y::AbstractArray{T,4}, LG::FlowStep{T}) where T
+function backward_inv(ΔY::AbstractArray{T,N}, Y::AbstractArray{T,N}, LG::FlowStep{T}) where {T,N}
+    ΔY,Y = LG.AN.backward_inv(ΔY,Y)
+    ΔY,Y = LG.C.backward_inv(ΔY,Y)
+    ΔY,Y = LG.CL.backward_inv(ΔY,Y)
+    return ΔY,Y
+end
+
+function inverse(Y::AbstractArray{T,N}, LG::FlowStep{T}) where {T,N}
 
     Y = LG.CL.inverse(Y)
     Y = LG.C.inverse(Y)
@@ -55,7 +62,7 @@ function inverse(Y::AbstractArray{T,4}, LG::FlowStep{T}) where T
 
 end
 
-function backward(ΔY::AbstractArray{T,4}, Y::AbstractArray{T,4}, LG::FlowStep{T}) where T
+function backward(ΔY::AbstractArray{T,N}, Y::AbstractArray{T,N}, LG::FlowStep{T}) where {T,N}
 
     ΔY,Y = LG.CL.backward(ΔY,Y)
     ΔY,Y = LG.C.backward(ΔY,Y)

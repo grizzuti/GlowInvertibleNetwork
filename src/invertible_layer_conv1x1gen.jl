@@ -39,7 +39,7 @@ function Conv1x1gen(nc::Int64; logdet::Bool=true, opt::Conv1x1genOptions{T}=Conv
 
 end
 
-function forward(X::AbstractArray{T,4}, C::Conv1x1gen{T}) where T
+function forward(X::AbstractArray{T,N}, C::Conv1x1gen{T}) where {T,N}
 
     W = convweight(C)
     nx, ny, _, nb = size(X)
@@ -52,7 +52,7 @@ function forward(X::AbstractArray{T,4}, C::Conv1x1gen{T}) where T
 
 end
 
-function inverse(Y::AbstractArray{T,4}, C::Conv1x1gen{T}; Winv::Union{Nothing,AbstractMatrix{T}}=nothing) where T
+function inverse(Y::AbstractArray{T,N}, C::Conv1x1gen{T}; Winv::Union{Nothing,AbstractMatrix{T}}=nothing) where {T,N}
 
     W = convweight(C)
     Winv === nothing && (Winv = W\idmat(Y;n=C.nc))
@@ -60,7 +60,7 @@ function inverse(Y::AbstractArray{T,4}, C::Conv1x1gen{T}; Winv::Union{Nothing,Ab
 
 end
 
-function backward(ΔY::AbstractArray{T,4}, Y::AbstractArray{T,4}, C::Conv1x1gen{T}) where T
+function backward(ΔY::AbstractArray{T,N}, Y::AbstractArray{T,N}, C::Conv1x1gen{T}) where {T,N}
 
     # Backpropagating input
     W = convweight(C)
@@ -92,8 +92,13 @@ dlogdet(C::Conv1x1gen, nx::Int64, ny::Int64, nb::Int64) = nx*ny./(C.s.data*nb)
 
 convweight(C::Conv1x1gen) = C.P'*(Array2Matrix(C.l.data, C.nc, C.inds_l)+idmat(C.P;n=C.nc))*(Array2Matrix(C.u.data, C.nc, C.inds_u)+Array2Matrix(C.s.data, C.nc, C.inds_s))
 
-conv1x1(X::AbstractArray{T,4}, W::AbstractMatrix{T}) where T = conv(X, reshape(W, (1,1,size(W)...)); stride=(1,1), pad=(0,0))
-
+function conv1x1(X::AbstractArray{T,N}, W::AbstractMatrix{T}) where {T,N}
+    if N == 4
+        conv(X, reshape(W, (1,1,size(W)...)); stride=(1,1), pad=(0,0))
+    else
+        conv(X, reshape(W, (1,1,1,size(W)...)); stride=(1,1,1), pad=(0,0,0))
+    end 
+end
 idmat(T::DataType, n::Int64) = Matrix{T}(I,n,n)
 function idmat(X::Array{T}; n::Union{Nothing,Int64}=nothing) where T
     n === nothing && (n = size(X,3))

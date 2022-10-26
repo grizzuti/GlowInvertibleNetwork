@@ -9,27 +9,40 @@ end
 
 @Flux.functor ConvolutionalLayer
 
-function ConvolutionalLayer(nc_in, nc_out; k=3, p=1, s=1, bias::Bool=true, weight_std::Real=0.05, T::DataType=Float32)
+function ConvolutionalLayer(nc_in, nc_out;ndims=2, k=3, p=1, s=1, bias::Bool=true, weight_std::Real=0.05, T::DataType=Float32)
 
-    W = Parameter(T(weight_std)*randn(T, k, k, nc_in, nc_out))
-    bias ? (b = Parameter(zeros(T, 1, 1, nc_out, 1))) : (b = nothing)
+    filter_k = Tuple(k for i=1:ndims)
+    one_set = Tuple(1 for i=1:ndims)
+    W = Parameter(T(weight_std)*randn(T, filter_k..., nc_in, nc_out))
+    bias ? (b = Parameter(zeros(T, one_set..., nc_out, 1))) : (b = nothing)
 
     return ConvolutionalLayer{T}(W, b, s, p)
-
 end
 
-function forward(X::AbstractArray{T,4}, CL::ConvolutionalLayer{T}) where T
+function forward(X::AbstractArray{T,N}, CL::ConvolutionalLayer{T}) where {T,N}
+    # println(size(X))
+    # println(size(CL.W.data))
+    # println(typeof(X))
+    # println(typeof(CL.W.data))
+    # println(CL.stride)
+    # println(CL.padding)
     Y = conv(X, CL.W.data; stride=CL.stride, pad=CL.padding)
     CL.b !== nothing && (Y .+= CL.b.data)
     return Y
 end
 
-function backward(ΔY::AbstractArray{T,4}, X::AbstractArray{T,4}, CL::ConvolutionalLayer{T}) where T
+function backward(ΔY::AbstractArray{T,N}, X::AbstractArray{T,N}, CL::ConvolutionalLayer{T}) where {T,N}
+
+    if N == 5
+        dims_sum=(1,2,3,5)
+    else 
+        dims_sum=(1,2,4)
+    end
 
     cdims = DenseConvDims(X, CL.W.data; stride=CL.stride, padding=CL.padding)
     ΔX = ∇conv_data(ΔY, CL.W.data, cdims)
     CL.W.grad = ∇conv_filter(X, ΔY, cdims)
-    CL.b !== nothing && (CL.b.grad = sum(ΔY, dims=(1,2,4)))
+    CL.b !== nothing && (CL.b.grad = sum(ΔY, dims=dims_sum))
 
     return ΔX
 

@@ -1,9 +1,9 @@
 export Glow, GlowOptions
 
-struct Glow{T} <: InvertibleNetwork
+struct Glow{T,N} <: InvertibleNetwork
     depth::Int64
     nscales::Int64
-    scale_dims::Array{NTuple{4,Int64},1}
+    scale_dims::Array{NTuple{N,Int64},1}
     FS::AbstractArray{FlowStep{T},2}
     logdet::Bool
 end
@@ -37,21 +37,24 @@ function GlowOptions(; k1::Int64=3, p1::Int64=1, s1::Int64=1, actnorm1::Bool=tru
 
 end
 
-function Glow(nc::Int64, nc_hidden::Int64, depth::Int64, nscales::Int64; logdet::Bool=true, opt::GlowOptions{T}=GlowOptions()) where T
+function Glow(nc::Int64, nc_hidden::Int64, depth::Int64, nscales::Int64;ndims=2, logdet::Bool=true, opt::GlowOptions{T}=GlowOptions()) where T
 
     FS = Array{FlowStep{T},2}(undef,depth,nscales)
-    nc = 4*nc
+    channel_factor = 2^(ndims)
+    nc = channel_factor*nc
+
+    N = ndims+2
     for l = 1:nscales
         for k = 1:depth
-            FS[k,l] = FlowStep(nc, nc_hidden; logdet=logdet, opt=opt.fs_options)
+            FS[k,l] = FlowStep(nc, nc_hidden;ndims=ndims, logdet=logdet, opt=opt.fs_options)
         end
-        nc = 2*nc
+        nc = Int(channel_factor/2)*nc
     end
-    return Glow{T}(depth,nscales,Array{NTuple{4,Int64}}(undef,nscales),FS,logdet)
+    return Glow{T,N}(depth,nscales,Array{NTuple{N,Int64}}(undef,nscales),FS,logdet)
 
 end
 
-function forward(X::AbstractArray{T,4}, G::Glow{T}) where T
+function forward(X::AbstractArray{T,N}, G::Glow{T}) where {T, N}
 
     # Original input shape
     input_shape = size(X)
@@ -63,7 +66,6 @@ function forward(X::AbstractArray{T,4}, G::Glow{T}) where T
     G.logdet && (logdet = T(0))
 
     for l = 1:G.nscales-1 # Loop over scales
-
         X = squeeze(X; pattern="checkerboard")
         for k = 1:G.depth
             G.logdet ? ((X, lgdt) = G.FS[k,l].forward(X)) : (X = G.FS[k,l].forward(X))
@@ -90,7 +92,7 @@ function forward(X::AbstractArray{T,4}, G::Glow{T}) where T
 
 end
 
-function inverse(Y::AbstractArray{T,4}, G::Glow{T}) where T
+function inverse(Y::AbstractArray{T,N}, G::Glow{T}) where {T, N}
 
     # De-concatenating scales
     Yscales = uncat_scales(Y[:], G.scale_dims)
@@ -115,7 +117,7 @@ function inverse(Y::AbstractArray{T,4}, G::Glow{T}) where T
 
 end
 
-function backward(ΔY::AbstractArray{T,4}, Y::AbstractArray{T,4}, G::Glow{T}) where T
+function backward(ΔY::AbstractArray{T,N}, Y::AbstractArray{T,N}, G::Glow{T}) where {T, N}
 
     # De-concatenating scales
     ΔYscales = uncat_scales(ΔY[:], G.scale_dims)
@@ -142,12 +144,78 @@ function backward(ΔY::AbstractArray{T,4}, Y::AbstractArray{T,4}, G::Glow{T}) wh
     end # end loop over scales
 
     return ΔX, X
-
 end
+function backward_inv(ΔX::AbstractArray{T, N},  X::AbstractArray{T, N}, G::Glow{T, N}) where {T, N}
+    ΔYscales = Array{Any,1}(undef,G.nscales)
+    Yscales = Array{Any,1}(undef,G.nscales)
+
+    # Original input shape
+    input_shape = size(X)
+
+    for l = 1:G.nscales-1 # Loop over scales
+        ΔX = squeeze(ΔX; pattern="checkerboard")
+        X = squeeze(X; pattern="checkerboard")
+        for k = 1:G.depth
+            ΔX, X = G.FS[k,l].backward_inv(ΔX,X)
+        end
+        X, Yl = tensor_split(X)
+        Yscales[l] = vec(Yl)
+
+        ΔX, ΔYl = tensor_split(ΔX)
+        ΔYscales[l] = vec(ΔYl)
+
+        G.scale_dims[l] = size(Yl)
+    end # end loop over scales
+
+    ΔX = squeeze(ΔX; pattern="checkerboard")
+    X = squeeze(X; pattern="checkerboard")
+    for k = 1:G.depth
+        ΔX, X = G.FS[k,end].backward_inv(ΔX,X)
+    end
+    G.scale_dims[G.nscales] = size(X)
+    Yscales[G.nscales] = vec(X)
+    ΔYscales[G.nscales] = vec(ΔX)
+
+    ΔX = reshape(cat_scales(ΔYscales), input_shape)
+    X = reshape(cat_scales(Yscales), input_shape)
+
+    return ΔX, X
+end
+
+
+# function backward_inv(ΔX::AbstractArray{T, N},  X::AbstractArray{T, N}, G::NetworkGlow) where {T, N}
+#     G.split_scales && (X_save = array_of_array(X, G.L-1))
+#     G.split_scales && (ΔX_save = array_of_array(ΔX, G.L-1))
+#     orig_shape = size(X)
+
+#     for i=1:G.L
+#         G.split_scales && (ΔX = G.squeezer.forward(ΔX))
+#         G.split_scales && (X  = G.squeezer.forward(X))
+#         for j=1:G.K
+#             ΔX_, X_ = backward_inv(ΔX, X, G.AN[i, j])
+#             ΔX,  X  = backward_inv(ΔX_, X_, G.CL[i, j])
+#         end
+
+#         if G.split_scales && i < G.L    # don't split after last iteration
+#             X, Z = tensor_split(X)
+#             ΔX, ΔZx = tensor_split(ΔX)
+
+#             X_save[i] = Z
+#             ΔX_save[i] = ΔZx
+
+#             G.Z_dims[i] = collect(size(X))
+#         end
+#     end
+
+#     G.split_scales && (X = reshape(cat_states(X_save, X), orig_shape))
+#     G.split_scales && (ΔX = reshape(cat_states(ΔX_save, ΔX), orig_shape))
+#     return ΔX, X
+# end
+
 
 cat_scales(Yscales::Array{Any,1}) = cat(Yscales...; dims=1)
 
-function uncat_scales(Y::AbstractArray{T,1}, dims::Array{NTuple{4,Int64},1}) where T
+function uncat_scales(Y::AbstractArray{T,1}, dims::Array{NTuple{N,Int64},1}) where {T,N}
     Yscales = Array{Any,1}(undef,length(dims))
     i = 0
     for l = 1:length(dims)
@@ -171,18 +239,18 @@ function get_params(G::Glow)
     return cat(p...; dims=1)
 end
 
-function gpu(G::Glow{T}) where T
+function gpu(G::Glow{T,N}) where {T,N}
     FS = Array{FlowStep{T},2}(undef,G.depth,G.nscales)
     for l=1:G.nscales, k=1:G.depth
         FS[k,l] = gpu(G.FS[k,l])
     end
-    return Glow{T}(G.depth, G.nscales, G.scale_dims, FS, G.logdet)
+    return Glow{T,N}(G.depth, G.nscales, G.scale_dims, FS, G.logdet)
 end
 
-function cpu(G::Glow{T}) where T
+function cpu(G::Glow{T,N}) where {T,N}
     FS = Array{FlowStep{T},2}(undef,G.depth,G.nscales)
     for l=1:G.nscales, k=1:G.depth
         FS[k,l] = cpu(G.FS[k,l])
     end
-    return Glow{T}(G.depth, G.nscales, G.scale_dims, FS, G.logdet)
+    return Glow{T,N}(G.depth, G.nscales, G.scale_dims, FS, G.logdet)
 end

@@ -28,16 +28,16 @@ ConvolutionalBlockOptions(; k1::Int64=3, p1::Int64=1, s1::Int64=1, actnorm1::Boo
                             T::DataType=Float32) =
     ConvolutionalBlockOptions{T}([k1,k2,k3], [p1,p2,p3], [s1,s2,s3], [actnorm1,actnorm2], [T(weight_std1),T(weight_std2),isnothing(weight_std3) ? T(weight_std2) : T(weight_std3)], T(logscale_factor), init_zero)
 
-function ConvolutionalBlock(nc_in, nc_out, nc_hidden; opt::ConvolutionalBlockOptions{T}=ConvolutionalBlockOptions()) where T
+function ConvolutionalBlock(nc_in, nc_out, nc_hidden;ndims=2,  opt::ConvolutionalBlockOptions{T}=ConvolutionalBlockOptions()) where T
 
-    CL1 = ConvolutionalLayer(nc_in, nc_hidden; k=opt.k[1], p=opt.p[1], s=opt.s[1], bias=~opt.actnorm[1], weight_std=opt.weight_std[1], T=T)
+    CL1 = ConvolutionalLayer(nc_in, nc_hidden; ndims=ndims, k=opt.k[1], p=opt.p[1], s=opt.s[1], bias=~opt.actnorm[1], weight_std=opt.weight_std[1], T=T)
     opt.actnorm[1] ? (A1 = ActNormPar(nc_hidden; logdet=false, T=T)) : (A1 = nothing)
-    CL2 = ConvolutionalLayer(nc_hidden, nc_hidden; k=opt.k[2], p=opt.p[2], s=opt.s[2], bias=~opt.actnorm[2], weight_std=opt.weight_std[2], T=T)
+    CL2 = ConvolutionalLayer(nc_hidden, nc_hidden;ndims=ndims,  k=opt.k[2], p=opt.p[2], s=opt.s[2], bias=~opt.actnorm[2], weight_std=opt.weight_std[2], T=T)
     opt.actnorm[2] ? (A2 = ActNormPar(nc_hidden; logdet=false, T=T)) : (A2 = nothing)
     if opt.init_zero
-        CL3 = ConvolutionalLayer0(nc_hidden, nc_out; k=opt.k[3], p=opt.p[3], s=opt.s[3], logscale_factor=opt.logscale_factor, T=T)
+        CL3 = ConvolutionalLayer0(nc_hidden, nc_out;ndims=ndims,  k=opt.k[3], p=opt.p[3], s=opt.s[3], logscale_factor=opt.logscale_factor, T=T)
     else
-        CL3 = ConvolutionalLayer0(nc_hidden, nc_out; k=opt.k[3], p=opt.p[3], s=opt.s[3], logscale_factor=opt.logscale_factor, weight_std=opt.weight_std[3], T=T)
+        CL3 = ConvolutionalLayer0(nc_hidden, nc_out;ndims=ndims,  k=opt.k[3], p=opt.p[3], s=opt.s[3], logscale_factor=opt.logscale_factor, weight_std=opt.weight_std[3], T=T)
     end
 
     return ConvolutionalBlock{T}(CL1, A1, CL2, A2, CL3)
