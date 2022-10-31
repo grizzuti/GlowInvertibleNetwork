@@ -719,7 +719,7 @@ version = "1.4.1"
 
 [[JOLI]]
 deps = ["Distributed", "DistributedArrays", "FFTW", "InplaceOps", "InteractiveUtils", "IterativeSolvers", "Libdl", "LinearAlgebra", "NFFT", "Nullables", "Printf", "PyCall", "Random", "SharedArrays", "SparseArrays", "SpecialFunctions", "Wavelets"]
-git-tree-sha1 = "aa9069d95c8e061e86725614fb2211fa998bba7c"
+path = "/nethome/rorozcom3/.julia/dev/JOLI"
 uuid = "bb331ad6-a1cf-11e9-23da-9bcb53c69f6f"
 version = "0.8.1"
 
