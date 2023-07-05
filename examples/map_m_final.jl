@@ -116,7 +116,7 @@ m = (1f0 ./ v).^2
 m0 = (1f0 ./ v0).^2
 
 # Setup model structure
-nsrc = 64    # number of sources
+nsrc = 4    # number of sources
 model = Model(n, d, o, m;)
 
 #' ## Create source and receivers positions at the surface
@@ -241,7 +241,9 @@ if opt_param == "z"
     opt_var_final = L"MAP $G_{\theta}(z^\ast)$"
     opt_var_init_data = L"Initial guess $F(G_{\theta}(z_{0}))$"
     opt_var_final_data = L"MAP $F(G_{\theta}(z^\ast))$"
+    initial_step = 1f0
 else
+    initial_step = 1f-1
     G = x -> x#reshape(joEye(prod(n);DDT=Float32,RDT=Float32)*vec(x),size(x))
     opt_var_init = L"Initial guess $v_{0}$"
     opt_var_final = L"MAP $m^{\ast}$"
@@ -301,8 +303,8 @@ dpred_0 = F_wave(get_m(z),q[[1]])
 #q[[1]].data
 
 λ = 0
-batchsize = 8
-n_epochs = 5
+batchsize = 4
+n_epochs = 2
 plot_every = 1
 fval = 0
 
@@ -359,7 +361,7 @@ for i in 1:n_epochs
         @show α, misfit
         return misfit
     end
-    step, fval = ls(ϕ, 1f-1, fval, dot(gradient_t, p))
+    step, fval = ls(ϕ, initial_step, fval, dot(gradient_t, p))
 
     new_m = proj(get_m(z .+ Float32(step) .* p))
     global z = get_z(new_m) 

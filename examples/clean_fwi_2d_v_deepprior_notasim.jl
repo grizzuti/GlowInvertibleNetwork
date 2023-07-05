@@ -1,6 +1,6 @@
-#CUDA_VISIBLE_DEVICES=1 nohup julia --project=. examples/clean_fwi_2d_v_deepprior_notasim.jl
-#CUDA_VISIBLE_DEVICES=1 nohup julia --project=. examples/clean_fwi_2d_v_deepprior_notasim.jl
-#CUDA_VISIBLE_DEVICES=4 julia --project=.
+#CUDA_VISIBLE_DEVICES=0 nohup julia --project=. examples/clean_fwi_2d_v_deepprior_notasim.jl &
+#CUDA_VISIBLE_DEVICES=2 nohup julia --project=. examples/clean_fwi_2d_v_deepprior_notasim.jl &
+#CUDA_VISIBLE_DEVICES=2 julia --project=.
 
 using InvertibleNetworks, Flux, GlowInvertibleNetwork
 
@@ -21,7 +21,7 @@ using Flux
 
 # Plotting path
 experiment_name = "map_2d"
-plot_path = "plots/map_2d"
+plot_path = "plots/map_2d_notasim"
 
 @load  "map_fwi_test_v.jld2" v 
 
@@ -51,11 +51,12 @@ replace_nan(v) = map(x -> isnan(x) ? zero(x) : x, v)
 
 
 # v0 = water_vel .* ones(Float32,n)
-# range_v = LinRange(minimum(v),NewMax,ny-idx_wb+1)
-# for i in idx_wb:ny
+# range_v = LinRange(minimum(v),NewMax,n[2]-idx_wb+1)
+# for i in idx_wb:n[2]
 #     v0[:,i] .= range_v[i-idx_wb+1]
 # end
-v0 = imfilter(v, Kernel.gaussian(15f0))
+kernel_smooth = 20f0
+v0 = imfilter(v, Kernel.gaussian(kernel_smooth))
 
 v = water_mute(v)
 v0 = water_mute(v0)
@@ -76,10 +77,9 @@ m = (1f0 ./ v).^2
 m0 = (1f0 ./ v0).^2
 
 # Setup model structure
-nsrc = 2    # number of sources
+nsrc = 64    # number of sources
 model = Model(n, d, o, m;)
 model0 = Model(n, d, o, m0;)
-
 
 #' ## Create source and receivers positions at the surface
 # Set up receiver geometry
@@ -119,7 +119,7 @@ Ps = judiProjection(src_geometry)
 F_wave = Pr*A_inv*adjoint(Ps)
 
 ####################################### Make observation ###################
-snr = 30
+snr = 5
 
 F = x -> F_wave(x,q)
 snr_scale = 10^(-snr/20)
@@ -130,13 +130,31 @@ e = judiVector(d_sim.geometry, e);
 e = e*snr_scale*norm(d_sim)/norm(e)
 d_obs = d_sim + e;
 
+#@load "dobs_deep_prior.jld2" d_obs
+
 ####################################### get deep prior observation ###################
 device = gpu
+
+# global net_epoch = 128
+#net_path = "data/clip_norm=10.0_depth=4_e=128_lr=0.0005_nc_hidden=256_nscales=6_ntrain=21280_nx=64_ny=64_α=0.1_αmin=0.01.jld2"
+# @load "data/clip_norm=10.0_depth=4_e=128_lr=0.0005_nc_hidden=256_nscales=6_ntrain=21280_nx=64_ny=64_α=0.1_αmin=0.01.jld2"
+
+# nc = 1
+# nc_hidden = 256
+# depth = 4
+# nscales = 6
+# nx_g = 64
+# ny_g = 64
+#  N_g = nx_g*nx_g
+# λ = 7f0
+# n_patches = 500
+
 @load "data/clip_norm=10.0_depth=5_e=120_lr=0.0002_nc_hidden=512_nscales=6_ntrain=10768_nx=512_ny=256_α=0.1_αmin=0.01.jld2"
 nx_g = nx
 ny_g = ny
 N_g = nx_g*nx_g
 n_patches = 1
+
 
 copy!(Random.default_rng(), Rrn_here);
 # Create multiscale network
@@ -154,7 +172,6 @@ G = G |> device
 # check generative samples are good so that loading went well. 
 G.forward(randn(Float32,nx_g,ny_g,1,1) |> device);
 gen = G.inverse(randn(Float32,nx_g,ny_g,1,1)|> device)
-
 fig=figure(figsize=(15,7));
 imshow(gen[:,:,1,1]'|>cpu);
 tight_layout()
@@ -163,7 +180,10 @@ safesave(joinpath(plot_path,savename(fig_name; digits=6)*"_gen.png"), fig); clos
 
 λ = 0.1f0
 ####################################### Optimization ######################
-v_i = copy(v0)
+v_init = v0
+v_i = copy(v_init)
+#v_init = G.inverse(zeros(Float32,nx_g,ny_g,1,1)|> device)[:,:,1,1] |> cpu
+#v_i = copy(v_init)
 F0 = judiModeling(deepcopy(model0), src_geometry, d_obs.geometry)
 
 proj(x) = reshape(median([vec(vmin) vec(x) vec(vmax)]; dims=2),n)
@@ -171,14 +191,24 @@ proj(x) = reshape(median([vec(vmin) vec(x) vec(vmax)]; dims=2),n)
 ls = BackTracking(order=3, iterations=10)
 
 # Starting point z and predicted data
-dpred_0 = F_wave(model0,q[1])
-
-batchsize = 16
+dpred_0 = F_wave(get_m(v_i),q[1])
+batchsize = 8
 n_epochs = 50
+n_epochs_prior = 10
 plot_every = 1
 
-map_lr = 4f-3 #seems to work find in fwi
+# T = Float32
+# ndims = 3
+# k = 3
+# filter_k = Tuple(k for i=1:ndims)
+# one_set = Tuple(1 for i=1:ndims)
 
+# nc_in  = 4 
+# nc_out = 8
+# norm(weight_std*randn(T, filter_k..., nc_in, nc_out))
+
+map_lr = 4f-3 #seems to work find in fwi
+#map_lr = 1f-2 #for patch. THe other is not for patch
 
 losses = []
 psnrs = []
@@ -190,8 +220,8 @@ for i in 1:n_epochs
     i_src = randperm(d_obs.nsrc)[1:batchsize]
     model_i = Model(n, d, o,  get_m(v_i);)
     fval, gradient_dm = fwi_objective(model_i, q[i_src], d_obs[i_src])
+     append!(losses, fval)
     gradient_fwi = gradient_dm.data ./ (-2 .* v_i .^(-3))
-
     gradient_total = gradient_fwi #+ λ*grad_prior
     #gradient =  λ*grad_prior
 
@@ -211,7 +241,7 @@ for i in 1:n_epochs
     # tight_layout()
     # fig_name = @strdict i snr nsrc freq batchsize λ
     # safesave(joinpath(plot_path,savename(fig_name; digits=6)*"_map.png"), fig); close(fig)
-
+    
     # linesearch 
     function ϕ(α)
         F0.model.m .= get_m(proj(v_i .+ α * p))
@@ -219,22 +249,28 @@ for i in 1:n_epochs
         @show α, misfit
         return misfit
     end
-    step_t, fval = ls(ϕ, 1f0, fval, dot(gradient_total, p))
+    #step_t, fval = ls(ϕ, 1f0, fval, dot(gradient_total, p))
+
+    try 
+        global step_t, fval = ls(ϕ, 1f0, fval, dot(gradient_total, p)) 
+    catch 
+        global step_t = (0.1f0)
+    end
 
     global v_i = proj(v_i .+ step_t .* p)
 
     #Prior on velocity
     opt = Flux.Optimiser([ADAM(map_lr)])
-    #for j in 1:50
+    for j in 1:n_epochs_prior
         z_probe = v_i
-        grad_prior     = zeros(Float32,size(z_probe)) |> device
+        grad_prior      = zeros(Float32,size(z_probe)) |> device
         grad_prior_norm = ones(Float32,size(z_probe)) |> device
         nx_z, ny_z = size(grad_prior)[1:2]
         
         x_coord = [rand(1:nx_z-nx_g+1) for l =1:n_patches]
         y_coord = [rand(1:ny_z-ny_g+1) for l =1:n_patches]
         inds = [(x_coord[l]:x_coord[l]+nx_g-1,y_coord[l]:y_coord[l]+ny_g-1,1:1,1:1) for l = 1:n_patches]
-        
+
         z_patches = zeros(Float32,nx_g,ny_g,1,n_patches) |> device
         for k in 1:n_patches
             z_patches[:,:,:,k] = z_probe[inds[k]...]
@@ -250,41 +286,95 @@ for i in 1:n_epochs
         end
 
         prior = norm(zz)^2/(n_patches*N_g) - lgdet / N_g
-    #    grad_prior = grad_prior ./ grad_prior_norm |> cpu
+        grad_prior = grad_prior ./ grad_prior_norm |> cpu
 
-    #    Flux.update!(opt,v_i,grad_prior)
-    #    println(prior)
-    #    append!(losses_prior,prior)
-    #end
+        Flux.update!(opt,v_i,grad_prior)
+        #println(prior)
+        append!(losses_prior,prior)
+    end
+
+    #Get prior value
+    z_probe = v_i
+    grad_prior      = zeros(Float32,size(z_probe)) |> device
+    grad_prior_norm = ones(Float32,size(z_probe)) |> device
+    nx_z, ny_z = size(grad_prior)[1:2]
+    
+    x_coord = [rand(1:nx_z-nx_g+1) for l =1:n_patches]
+    y_coord = [rand(1:ny_z-ny_g+1) for l =1:n_patches]
+    inds = [(x_coord[l]:x_coord[l]+nx_g-1,y_coord[l]:y_coord[l]+ny_g-1,1:1,1:1) for l = 1:n_patches]
+
+    z_patches = zeros(Float32,nx_g,ny_g,1,n_patches) |> device
+    for k in 1:n_patches
+        z_patches[:,:,:,k] = z_probe[inds[k]...]
+    end
+
+    zz, lgdet = G(z_patches);
+    prior = norm(zz)^2/(n_patches*N_g) - lgdet / N_g
+    append!(losses_prior,prior)
+
+
+
+
+
+      # fig=figure(figsize=(21,8));
+        
+     
+      #   plot(losses_prior)
+      #    xlabel("X [m]"); ylabel("Depth [m]");
+
+      #   tight_layout()
+      #   fig_name = @strdict i snr nsrc freq batchsize λ n_epochs_prior
+      #   safesave(joinpath(plot_path,savename(fig_name; digits=6)*"_prior_loss.png"), fig); close(fig)
+
+
+
+      # fig=figure(figsize=(21,8));
+      #   title("MAP epoch = $(i)")
+      #   subplot(1,3,1); title("starting v0")
+      #   imshow(v_init'; cmap="cet_rainbow4",vmin=NewMin,vmax=NewMax,extent=model_extent,interpolation="none");# colorbar()
+      #   xlabel("X [m]"); ylabel("Depth [m]");
+
+      #   subplot(1,3,2); title("curr v_i PSNR=$(psnrs[end])")
+      #   imshow(v_curr'; cmap="cet_rainbow4",vmin=NewMin,vmax=NewMax,extent=model_extent,interpolation="none"); #colorbar()
+      #   xlabel("X [m]"); ylabel("Depth [m]");
+
+      #   subplot(1,3,3); title(L"Ground truth $v_{gt}$")
+      #   imshow(grad_prior';cmap="cet_rainbow4",extent=model_extent,interpolation="none"); #colorbar()
+      #   xlabel("X [m]"); ylabel("Depth [m]");
+
+      #   tight_layout()
+      #   fig_name = @strdict i snr nsrc freq batchsize λ n_epochs_prior
+      #   safesave(joinpath(plot_path,savename(fig_name; digits=6)*"_map.png"), fig); close(fig)
+
     
     v_curr = v_i
     psnr = round(assess_psnr(v_curr,v);digits=3)
     l2 = round(norm(v_curr-v)^2 ;digits=3)
 
-    @show fval, prior
 
-    append!(psnrs, psnr);append!(losses_prior, prior)
+
+    append!(psnrs, psnr);
     append!(l2_loss, l2)
-    append!(losses, fval)
+   
     if mod(i,plot_every) == 0
         fig=figure(figsize=(7,10));
-        subplot(4,1,1); plot(losses); ylabel("Objective f"); xlabel("Parameter update")
+        subplot(4,1,1); plot(losses); ylabel("datamisfit"); xlabel("Parameter update")
         ;title("final f=$(losses[end])")
         subplot(4,1,2); plot(losses_prior); ylabel("prior"); xlabel("Parameter update")
     
-        subplot(4,1,3); plot(psnrs); ylabel("PSNR metric"); xlabel("Parameter update")
+        subplot(4,1,3); plot(psnrs); ylabel("PSNR metric wrt ground truth"); xlabel("Parameter update")
         ;title("final psnr=$(psnrs[end])")
-        subplot(4,1,4); plot(l2_loss); ylabel("L2 metric"); xlabel("Parameter update")
+        subplot(4,1,4); plot(l2_loss); ylabel("L2 metric wrt ground truth"); xlabel("Parameter update")
         ;title("final l2_loss=$(l2_loss[end])")
         tight_layout()
-        fig_name = @strdict i snr nsrc freq batchsize λ 
+        fig_name = @strdict i snr nsrc freq batchsize λ n_epochs_prior n_patches kernel_smooth
         safesave(joinpath(plot_path,savename(fig_name; digits=6)*"_log.png"), fig); close(fig)
 
         # Important look at the overfitting results. Why are they not perfect?
         fig=figure(figsize=(21,8));
         title("MAP epoch = $(i)")
         subplot(1,3,1); title("starting v0")
-        imshow(v0'; cmap="cet_rainbow4",vmin=NewMin,vmax=NewMax,extent=model_extent,interpolation="none");# colorbar()
+        imshow(v_init'; cmap="cet_rainbow4",vmin=NewMin,vmax=NewMax,extent=model_extent,interpolation="none");# colorbar()
         xlabel("X [m]"); ylabel("Depth [m]");
 
         subplot(1,3,2); title("curr v_i PSNR=$(psnrs[end])")
@@ -296,7 +386,7 @@ for i in 1:n_epochs
         xlabel("X [m]"); ylabel("Depth [m]");
 
         tight_layout()
-        fig_name = @strdict i snr nsrc freq batchsize λ
+        fig_name = @strdict i snr nsrc freq batchsize λ n_epochs_prior n_patches kernel_smooth
         safesave(joinpath(plot_path,savename(fig_name; digits=6)*"_map.png"), fig); close(fig)
 
         dpred   = F_wave(get_m(v_i),q[1])
@@ -319,11 +409,11 @@ for i in 1:n_epochs
         xlabel("Receiver index"); ylabel("Time [milliseconds]");
 
         tight_layout()
-        fig_name = @strdict i snr nsrc freq batchsize λ
+        fig_name = @strdict kernel_smooth i snr nsrc freq batchsize λ n_epochs_prior n_patches
         safesave(joinpath(plot_path,savename(fig_name;  digits=6)*"_map_data.png"), fig); close(fig)
     end
 
-    save_dict = @strdict i v_i n_epochs λ losses l2_loss psnrs  losses_prior
+    save_dict = @strdict i v_i n_epochs λ losses l2_loss psnrs  losses_prior kernel_smooth
     safesave(
      datadir("map-2d", savename(save_dict, "jld2"; digits=6)),
      save_dict;
@@ -332,9 +422,9 @@ end
 
 
 
-# save_dict = @strdict v_i n_epochs λ losses l2_loss psnrs  losses_prior
-# safesave(
-#  datadir("map-2d", savename(save_dict, "jld2"; digits=6)),
-#  save_dict;
-# )
+save_dict = @strdict v_i n_epochs λ losses l2_loss psnrs losses_prior n_epochs_prior kernel_smooth
+safesave(
+ datadir("map-2d", savename(save_dict, "jld2"; digits=6)),
+ save_dict;
+)
 
