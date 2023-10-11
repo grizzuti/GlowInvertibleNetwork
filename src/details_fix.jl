@@ -1,2 +1,0 @@
-InvertibleNetworks.cuzeros(X, args...) = X isa CuArray ? CUDA.zeros(eltype(X), args) : zeros(eltype(X), args)
-InvertibleNetworks.cuones(X, args...) = X isa CuArray ? CUDA.ones(eltype(X), args) : ones(eltype(X), args)

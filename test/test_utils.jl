@@ -2,20 +2,17 @@ function gradient_test_input(G, loss::Function, X::AbstractArray{T}; step::T=1f-
 
     # Computing gradients
     hasfield(typeof(G), :logdet) ? (logdet = G.logdet) : (logdet = false)
-    # G isa Conv1x1gen && (G.init_weight! = true)
     logdet ? ((Y, _) = G.forward(X)) : (Y = G.forward(X))
     _, ΔY = loss(Y)
     invnet ? ((ΔX, _) = G.backward(ΔY, Y)) : (ΔX = G.backward(ΔY, X))
 
     # Perturbations
-    dX = randn(T, size(X)); dX .*= norm(X)/norm(dX)
+    dX = typeof(X)(randn(T, size(X))); dX .*= norm(X)/norm(dX)
 
     # Test (wrt input)
-    # G isa Conv1x1gen && (G.init_weight! = true)
     logdet ? ((Yp1, logdet_p1) = G.forward(X+T(0.5)*step*dX)) : (Yp1 = G.forward(X+T(0.5)*step*dX))
     lp1, _ = loss(Yp1)
     logdet && (lp1 -= logdet_p1)
-    # G isa Conv1x1gen && (G.init_weight! = true)
     logdet ? ((Ym1, logdet_m1) = G.forward(X-T(0.5)*step*dX)) : (Ym1 = G.forward(X-T(0.5)*step*dX))
     lm1, _ = loss(Ym1)
     logdet && (lm1 -= logdet_m1)
@@ -26,13 +23,12 @@ end
 function gradient_test_pars(G, loss::Function, X::AbstractArray{T}; step::T=1e-4, rtol::T=1e-3, invnet::Bool=true, dθ::Union{Nothing,Array{Parameter,1}}=nothing) where T
 
     # Perturbations
-    θ = deepcopy(get_params(G))
-    if dθ === nothing
+    G = deepcopy(G); θ = deepcopy(get_params(G))
+    if isnothing(dθ)
         dθ = Array{Parameter,1}(undef, length(θ))
-        for i = 1:length(θ)
-            dθ[i] = Parameter(randn(T, size(θ[i].data)))
+        for i = eachindex(θ)
+            dθ[i] = Parameter(typeof(θ[i].data)(randn(T, size(θ[i].data))))
             norm(θ[i].data) != T(0) && (dθ[i].data .*= norm(θ[i].data)/norm(dθ[i].data))
-            # dθ[i].data .*= norm(θ[i].data)/norm(dθ[i].data)
         end
     end
 
@@ -109,3 +105,12 @@ function cpu_vs_gpu_test(G, input_shape; rtol::Float32=1f-5, invnet::Bool=true)
     @test Xgpu ≈ Xcpu rtol=rtol
 
 end
+
+# function convert_params!(eltype::DataType, N::InvertibleNetwork)
+#     θ = get_params(N)
+#     for i = eachindex(θ)
+#         θ[i].data = convert.(eltype, θ[i].data)
+#         ~isnothing(θ[i].grad) && (θ[i].grad = convert.(eltype, θ[i].grad))
+#     end
+#     return θ
+# end

@@ -1,48 +1,39 @@
 export ConvolutionalLayer
 
-struct ConvolutionalLayer{T<:Real} <: NeuralNetLayer
+mutable struct ConvolutionalLayer<:InvertibleNetworks.NeuralNetwork
     W::Parameter
     b::Union{Parameter,Nothing}
-    stride
-    padding
+    padding::Integer
+    stride::Integer
 end
 
 @Flux.functor ConvolutionalLayer
 
-function ConvolutionalLayer(nc_in, nc_out; k=3, p=1, s=1, bias::Bool=true, weight_std::Real=0.05, T::DataType=Float32)
+function ConvolutionalLayer(nc_in::Integer, nc_out::Integer; stencil_size::Integer=3, padding::Integer=1, stride::Integer=1, bias::Bool=true, weight_std::Real=0.05, ndims::Integer=2)
 
-    W = Parameter(T(weight_std)*randn(T, k, k, nc_in, nc_out))
-    bias ? (b = Parameter(zeros(T, 1, 1, nc_out, 1))) : (b = nothing)
-
-    return ConvolutionalLayer{T}(W, b, s, p)
+    W = Parameter(convert(Float32, weight_std)*randn(Float32, stencil_size*ones(Int, ndims)..., nc_in, nc_out))
+    bias ? (b = Parameter(zeros(Float32, ones(Int, ndims)..., nc_out, 1))) : (b = nothing)
+    return ConvolutionalLayer(W, b, padding, stride)
 
 end
 
-function forward(X::AbstractArray{T,4}, CL::ConvolutionalLayer{T}) where T
-    Y = conv(X, CL.W.data; stride=CL.stride, pad=CL.padding)
-    CL.b !== nothing && (Y .+= CL.b.data)
+function InvertibleNetworks.forward(X::AbstractArray{T,N}, CL::ConvolutionalLayer) where {T,N}
+    cdims = DenseConvDims(size(X), size(CL.W.data); padding=CL.padding, stride=CL.stride)
+    Y = conv(X, CL.W.data, cdims)
+    ~isnothing(CL.b) && (Y .+= CL.b.data)
     return Y
 end
 
-function backward(ΔY::AbstractArray{T,4}, X::AbstractArray{T,4}, CL::ConvolutionalLayer{T}) where T
-
-    cdims = DenseConvDims(X, CL.W.data; stride=CL.stride, padding=CL.padding)
+function InvertibleNetworks.backward(ΔY::AbstractArray{T,N}, X::AbstractArray{T,N}, CL::ConvolutionalLayer; set_grad::Bool=true) where {T,N}
+    cdims = DenseConvDims(size(X), size(CL.W.data); padding=CL.padding, stride=CL.stride)
     ΔX = ∇conv_data(ΔY, CL.W.data, cdims)
-    CL.W.grad = ∇conv_filter(X, ΔY, cdims)
-    CL.b !== nothing && (CL.b.grad = sum(ΔY, dims=(1,2,4)))
-
+    if set_grad
+        isnothing(CL.W.grad) ? (CL.W.grad = ∇conv_filter(X, ΔY, cdims)) : (CL.W.grad .= ∇conv_filter(X, ΔY, cdims))
+        if ~isnothing(CL.b)
+            isnothing(CL.b.grad) ? (CL.b.grad = sum(ΔY, dims=(1:N-2...,N))) : (CL.b.grad .= sum(ΔY, dims=(1:N-2...,N)))
+        end
+    end
     return ΔX
-
 end
 
-function clear_grad!(CL::ConvolutionalLayer)
-    CL.W.grad = nothing
-    CL.b !== nothing && (CL.b.grad = nothing)
-end
-
-function get_params(CL::ConvolutionalLayer)
-    CL.b !== nothing ? (return [CL.W, CL.b]) : (return [CL.W])
-end
-
-gpu(CL::ConvolutionalLayer{T}) where T = ConvolutionalLayer{T}(gpu(CL.W), gpu(CL.b), CL.stride, CL.padding)
-cpu(CL::ConvolutionalLayer{T}) where T = ConvolutionalLayer{T}(cpu(CL.W), cpu(CL.b), CL.stride, CL.padding)
+InvertibleNetworks.get_params(CL::ConvolutionalLayer) = ~isnothing(CL.b) ? (return [CL.W, CL.b]) : (return [CL.W])
