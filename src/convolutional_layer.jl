@@ -9,9 +9,9 @@ end
 
 @Flux.functor ConvolutionalLayer
 
-function ConvolutionalLayer(nc_in::Integer, nc_out::Integer; stencil_size::Integer=3, padding::Integer=1, stride::Integer=1, bias::Bool=true, weight_std::Real=0.05, ndims::Integer=2)
+function ConvolutionalLayer(nc_in::Integer, nc_out::Integer; stencil_size::Integer=3, padding::Integer=1, stride::Integer=1, bias::Bool=true, init_zero::Bool=false, ndims::Integer=2)
 
-    W = Parameter(convert(Float32, weight_std)*randn(Float32, stencil_size*ones(Int, ndims)..., nc_in, nc_out))
+    W = Parameter(~init_zero*glorot_uniform(stencil_size*ones(Int, ndims)..., nc_in, nc_out))
     bias ? (b = Parameter(zeros(Float32, ones(Int, ndims)..., nc_out, 1))) : (b = nothing)
     return ConvolutionalLayer(W, b, padding, stride)
 
