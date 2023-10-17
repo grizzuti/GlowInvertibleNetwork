@@ -9,12 +9,13 @@ end
 
 @Flux.functor CouplingLayerAffine
 
-function CouplingLayerAffine(nc::Integer, nc_hidden::Integer;
+function CouplingLayerAffine(nc::Integer;
+                                nc_hidden::Integer=nc,
                                 stencil_size::NTuple{3,Integer}=(3,1,3),
                                 padding::NTuple{3,Integer}=(1,0,1),
                                 stride::NTuple{3,Integer}=(1,1,1),
                                 do_actnorm::Bool=true,
-                                activation::Union{Nothing,InvertibleNetworks.ActivationFunction}=SigmoidLayer(; low=0.5f0, high=1f0),
+                                activation::Union{Nothing,InvertibleNetworks.ActivationFunction}=SigmoidLayerNew(; low=0.5f0, high=1f0),
                                 logdet::Bool=true,
                                 init_id::Bool=true,
                                 ndims::Integer=2)

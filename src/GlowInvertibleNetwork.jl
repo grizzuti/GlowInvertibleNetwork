@@ -5,6 +5,7 @@ using LinearAlgebra, NNlib, Flux, InvertibleNetworks, Statistics
 include("./utils.jl")
 include("./convolutional_layer.jl")
 include("./convolutional_block.jl")
+include("./invertible_layer_actnormnew.jl")
 include("./invertible_layer_orthogonalconv1x1.jl")
 include("./invertible_layer_claffine.jl")
 include("./invertible_layer_flowstep.jl")

@@ -12,7 +12,7 @@ batchsize = 3
 for N = 1:3, do_reverse = [false, true]
 
     # Test invertibility
-    CL = CouplingLayerAffine(nc, nc_hidden; activation=SigmoidLayerNew(; low=0.5f0, high=1f0), logdet=true, init_id=false, ndims=N) |> device; do_reverse && (CL = reverse(CL))
+    CL = CouplingLayerAffine(nc; nc_hidden=nc_hidden, activation=SigmoidLayerNew(; low=0.5f0, high=1f0), logdet=true, init_id=false, ndims=N) |> device; do_reverse && (CL = reverse(CL))
     X = randn(Float32, n*ones(Int, N)..., nc, batchsize) |> device
     Y = randn(Float32, n*ones(Int, N)..., nc, batchsize) |> device
     @test X ≈ CL.inverse(CL.forward(X)[1]) rtol=1f-6
@@ -28,7 +28,7 @@ for N = 1:3, do_reverse = [false, true]
 
 
     # Gradient test (input)
-    CL = CouplingLayerAffine(nc, nc_hidden; activation=SigmoidLayerNew(; low=0.5, high=1.0), logdet=true, init_id=false, ndims=N) |> device; do_reverse && (CL = reverse(CL))
+    CL = CouplingLayerAffine(nc; nc_hidden=nc_hidden, activation=SigmoidLayerNew(; low=0.5, high=1.0), logdet=true, init_id=false, ndims=N) |> device; do_reverse && (CL = reverse(CL))
     θ = get_params(CL); for i = eachindex(θ) ~isnothing(θ[i].data) && (θ[i].data = Float64.(θ[i].data)); end
     ΔY = randn(Float32, n*ones(Int, N)..., nc, batchsize) |> device; ΔY = Float64.(ΔY)
     ΔX = randn(Float32, n*ones(Int, N)..., nc, batchsize) |> device; ΔX = Float64.(ΔX)
@@ -42,7 +42,7 @@ for N = 1:3, do_reverse = [false, true]
 
 
     # Gradient test (parameters)    
-    CL = CouplingLayerAffine(nc, nc_hidden; activation=SigmoidLayerNew(; low=0.5, high=1.0), logdet=true, init_id=false, ndims=N) |> device; do_reverse && (CL = reverse(CL))
+    CL = CouplingLayerAffine(nc; nc_hidden=nc_hidden, activation=SigmoidLayerNew(; low=0.5, high=1.0), logdet=true, init_id=false, ndims=N) |> device; do_reverse && (CL = reverse(CL))
     θ = get_params(CL); for i = eachindex(θ) ~isnothing(θ[i].data) && (θ[i].data = Float64.(θ[i].data)); end
     X  = randn(Float32, n*ones(Int, N)..., nc, batchsize) |> device; X = Float64.(X)
     CL.forward(X)

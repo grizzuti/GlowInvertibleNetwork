@@ -1,5 +1,4 @@
-using GlowInvertibleNetwork, InvertibleNetworks, CUDA, Flux, Test, LinearAlgebra, Random
-CUDA.allowscalar(false)
+using GlowInvertibleNetwork, InvertibleNetworks, Flux, Test, LinearAlgebra, Random
 include("./test_utils.jl")
 Random.seed!(42)
 
@@ -10,17 +9,23 @@ nc_in = 4
 nc_hidden = 21
 nc_out = 5
 nb = 4
-opt = ConvolutionalBlockOptions(; stencil_size=(3,1,3),
-                                  padding=(1,0,1),
-                                  stride=(1,1,1),
-                                  do_actnorm=true,
-                                  init_zero=false)
+stencil_size = (3,1,3)
+padding = (1,0,1)
+stride = (1,1,1)
+do_actnorm = true
+init_zero = false
 step = T(1e-6)
 rtol = T(1e-3)
-for ndims = [2, 3]
+for ndims = 1:3
 
     # Initialize
-    N = ConvolutionalBlock(nc_in, nc_hidden, nc_out; opt=opt, ndims=ndims) |> gpu
+    N = ConvolutionalBlock(nc_in, nc_hidden, nc_out;
+                                stencil_size=stencil_size,
+                                padding=padding,
+                                stride=stride,
+                                do_actnorm=do_actnorm,
+                                init_zero=init_zero,
+                                ndims=ndims) |> gpu
     InvertibleNetworks.convert_params!(T, N)
 
     # Eval

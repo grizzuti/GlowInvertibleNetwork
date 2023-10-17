@@ -1,76 +1,72 @@
-export FlowStep, FlowStepOptions
+export FlowStep
 
-struct FlowStep{T} <: NeuralNetLayer
-    AN::ActNormPar{T}
-    C::Union{Conv1x1gen{T},Conv1x1orth_fixed{T}}
-    CL::CouplingLayerAffine{T}
+mutable struct FlowStep <: InvertibleNetwork
+    AN::ActNorm
+    Q::OrthogonalConv1x1
+    CL::CouplingLayerAffine
     logdet::Bool
+    is_reversed::Bool
 end
 
 @Flux.functor FlowStep
 
-struct FlowStepOptions{T<:Real}
-    cl_options::CouplingLayerAffineOptions{T}
-    conv1x1_options::Union{Nothing,Conv1x1genOptions{T}}
-end
+function FlowStep(nc::Integer;
+                    nc_hidden::Integer=nc,
+                    stencil_size::NTuple{3,Integer}=(3,1,3),
+                    padding::NTuple{3,Integer}=(1,0,1),
+                    stride::NTuple{3,Integer}=(1,1,1),
+                    do_actnorm::Bool=true,
+                    activation::Union{Nothing,InvertibleNetworks.ActivationFunction}=SigmoidLayerNew(; low=0.5f0, high=1f0),
+                    logdet::Bool=true,
+                    init_id_an::Bool=false,
+                    init_id_q::Bool=false,
+                    init_id_cl::Bool=true,
+                    ndims::Integer=2)
 
-# FlowStepOptions(; T::DataType=Float32) = FlowStepOptions{T}(CouplingLayerAffineOptions(; T=T), Conv1x1genOptions(; T=T))
-FlowStepOptions(; T::DataType=Float32) = FlowStepOptions{T}(CouplingLayerAffineOptions(; T=T), nothing)
-
-function FlowStep(nc, nc_hidden; logdet::Bool=true, opt::FlowStepOptions{T}=FlowStepOptions()) where T
-
-    AN = ActNormPar(nc; logdet=logdet, T=T)
-    if isnothing(opt.conv1x1_options)
-        C = Conv1x1orth_fixed(nc; logdet=logdet, T=T)
-    else
-        C  = Conv1x1gen(nc; logdet=logdet, opt=opt.conv1x1_options)
-    end
-    CL = CouplingLayerAffine(nc, nc_hidden; logdet=logdet, opt=opt.cl_options)
-    return FlowStep{T}(AN,C,CL,logdet)
-
-end
-
-function forward(X::AbstractArray{T,4}, LG::FlowStep{T}) where T
-
-    if LG.logdet
-        X, logdet1 = LG.AN.forward(X)
-        X, logdet2 = LG.C.forward(X)
-        X, logdet3 = LG.CL.forward(X)
-        return X, logdet1+logdet2+logdet3
-    else
-        X = LG.AN.forward(X)
-        X = LG.C.forward(X)
-        X = LG.CL.forward(X)
-        return X
-    end
+    AN = ActNorm(nc; logdet=logdet)
+    Q  = OrthogonalConv1x1(nc; logdet=logdet, id_init=id_init_q)
+    CL = CouplingLayerAffine(nc; nc_hidden=nc_hidden, stencil_size=stencil_size, padding=padding, stride=stride, do_actnorm=do_actnorm, activation=activation, logdet=logdet, init_id=init_id_cl, ndims=ndims)
+    return FlowStep(AN, Q, CL, logdet, false)
 
 end
 
-function inverse(Y::AbstractArray{T,4}, LG::FlowStep{T}) where T
+function InvertibleNetworks.forward(X::AbstractArray{T,N}, FS::FlowStep; logdet::Union{Nothing,Bool}=nothing) where {T,N}
+    isnothing(logdet) && (logdet = (FS.logdet && ~FS.is_reversed))
 
-    Y = LG.CL.inverse(Y)
-    Y = LG.C.inverse(Y)
-    Y = LG.AN.inverse(Y)
-    return Y
+    logdet ? ((X, logdet1) = FS.AN.forward(X)) : (X = FS.AN.forward(X))
+    logdet ? ((X, logdet2) = FS.Q.forward(X))  : (X = FS.Q.forward(X))
+    logdet ? ((X, logdet3) = FS.CL.forward(X)) : (X = FS.CL.forward(X))
+    logdet ? (return (X, logdet1+logdet2+logdet3)) : (return X)
 
 end
 
-function backward(ΔY::AbstractArray{T,4}, Y::AbstractArray{T,4}, LG::FlowStep{T}) where T
+function InvertibleNetworks.inverse(Y::AbstractArray{T,N}, FS::FlowStep; logdet::Union{Nothing,Bool}=nothing) where {T,N}
+    isnothing(logdet) && (logdet = (FS.logdet && FS.is_reversed))
 
-    ΔY,Y = LG.CL.backward(ΔY,Y)
-    ΔY,Y = LG.C.backward(ΔY,Y)
-    ΔY,Y = LG.AN.backward(ΔY,Y)
+    logdet ? ((Y, logdet1) = FS.CL.inverse(Y)) : (Y = FS.CL.inverse(Y))
+    logdet ? ((Y, logdet2) = FS.Q.inverse(Y))  : (Y = FS.Q.inverse(Y))
+    logdet ? ((Y, logdet3) = FS.AN.inverse(Y)) : (Y = FS.AN.inverse(Y))
+    logdet ? (return (Y, logdet1+logdet2+logdet3)) : (return Y)
+
+end
+
+function InvertibleNetworks.backward(ΔY::AbstractArray{T,N}, Y::AbstractArray{T,N}, FS::FlowStep; set_grad::Bool=true) where {T,N}
+
+    ΔY, Y = FS.CL.backward(ΔY, Y; set_grad=set_grad)
+    ΔY, Y = FS.Q.backward( ΔY, Y; set_grad=set_grad)
+    ΔY, Y = FS.AN.backward(ΔY, Y; set_grad=set_grad)
     return ΔY,Y
 
 end
 
-function clear_grad!(LG::FlowStep)
-    clear_grad!(LG.AN)
-    clear_grad!(LG.C)
-    clear_grad!(LG.CL)
+function InvertibleNetworks.backward_inv(ΔY::AbstractArray{T,N}, Y::AbstractArray{T,N}, FS::FlowStep; set_grad::Bool=true) where {T,N}
+
+    ΔY, Y = FS.CL.backward(ΔY, Y; set_grad=set_grad)
+    ΔY, Y = FS.Q.backward( ΔY, Y; set_grad=set_grad)
+    ΔY, Y = FS.AN.backward(ΔY, Y; set_grad=set_grad)
+    return ΔY, Y
+
 end
 
-get_params(LG::FlowStep) = cat(get_params(LG.AN), get_params(LG.C), get_params(LG.CL); dims=1)
-
-gpu(LG::FlowStep{T}) where T = FlowStep{T}(gpu(LG.AN), gpu(LG.C), gpu(LG.CL), LG.logdet)
-cpu(LG::FlowStep{T}) where T = FlowStep{T}(cpu(LG.AN), cpu(LG.C), cpu(LG.CL), LG.logdet)
+InvertibleNetworks.get_params(FS::FlowStep) = cat(get_params(FS.AN), get_params(FS.Q), get_params(FS.CL); dims=1)
+InvertibleNetworks.tag_as_reversed!(FS::FlowStep, tag::Bool) = (FS.is_reversed = tag; return FS)

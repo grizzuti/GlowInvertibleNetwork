@@ -1,5 +1,4 @@
-using GlowInvertibleNetwork, InvertibleNetworks, CUDA, Flux, Test, LinearAlgebra
-CUDA.allowscalar(false)
+using GlowInvertibleNetwork, InvertibleNetworks, Flux, Test, LinearAlgebra
 include("./test_utils.jl")
 # using Random; Random.seed!(2)
 

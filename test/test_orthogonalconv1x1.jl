@@ -35,15 +35,14 @@ for N = 1:3, do_reverse = [false, true]
 
 
     # Gradient test (parameters)
-    T = Float64
     C = OrthogonalConv1x1(nc; logdet=true) |> device; do_reverse && (C = reverse(C))
-    C.stencil_pars.data = T.(C.stencil_pars.data)
-    X  = randn(T, n*ones(Int, N)..., nc, batchsize) |> device; X = T.(X)
-    ΔY_ = randn(T, n*ones(Int, N)..., nc, batchsize) |> device; ΔY_ = T.(ΔY_)
+    C.stencil_pars.data = Float64.(C.stencil_pars.data)
+    X  = randn(T, n*ones(Int, N)..., nc, batchsize) |> device; X = Float64.(X)
+    ΔY_ = randn(T, n*ones(Int, N)..., nc, batchsize) |> device; ΔY_ = Float64.(ΔY_)
     θ = copy(C.stencil_pars.data)
-    Δθ = randn(T, size(θ)) |> device; Δθ = T.(Δθ); Δθ *= norm(θ)/norm(Δθ)
+    Δθ = randn(T, size(θ)) |> device; Δθ = Float64.(Δθ); Δθ *= norm(θ)/norm(Δθ)
 
-    t = T(1e-5)
+    t = Float64(1e-5)
     set_params!(C, [Parameter(θ+t*Δθ/2)])
     Yp1 = C.forward(X)[1]
     set_params!(C, [Parameter(θ-t*Δθ/2)])
@@ -54,6 +53,6 @@ for N = 1:3, do_reverse = [false, true]
     C.backward(ΔY_, Y)
     Δθ_ = C.stencil_pars.grad
 
-    @test dot(ΔY, ΔY_) ≈ dot(Δθ, Δθ_) rtol=T(1e-4)
+    @test dot(ΔY, ΔY_) ≈ dot(Δθ, Δθ_) rtol=Float64(1e-4)
 
 end

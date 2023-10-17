@@ -1,5 +1,4 @@
-using GlowInvertibleNetwork, InvertibleNetworks, CUDA, Flux, Test, LinearAlgebra
-CUDA.allowscalar(false)
+using GlowInvertibleNetwork, InvertibleNetworks, Flux, Test, LinearAlgebra
 include("./test_utils.jl")
 
 T = Float64
@@ -12,12 +11,12 @@ k = 3
 p = 1
 s = 1
 bias = true
-weight_std = 0.05
+init_zero = false
 
-for ndims = [2, 3]
+for ndims = 1:3
 
     # Initialize
-    N = ConvolutionalLayer(nc_in, nc_out; stencil_size=k, padding=p, stride=s, bias=bias, weight_std=weight_std, ndims=ndims) |> gpu
+    N = ConvolutionalLayer(nc_in, nc_out; stencil_size=k, padding=p, stride=s, bias=bias, init_zero=init_zero, ndims=ndims) |> gpu
     InvertibleNetworks.convert_params!(T, N)
 
     # Eval

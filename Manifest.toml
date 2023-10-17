@@ -153,10 +153,14 @@ uuid = "082447d4-558c-5d27-93f4-14fc19e9eca2"
 version = "1.55.0"
 
 [[deps.ChainRulesCore]]
-deps = ["Compat", "LinearAlgebra", "SparseArrays"]
-git-tree-sha1 = "e30f2f4e20f7f186dc36529910beaedc60cfa644"
+deps = ["Compat", "LinearAlgebra"]
+git-tree-sha1 = "e0af648f0692ec1691b5d094b8724ba1346281cf"
 uuid = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
-version = "1.16.0"
+version = "1.18.0"
+weakdeps = ["SparseArrays"]
+
+    [deps.ChainRulesCore.extensions]
+    ChainRulesCoreSparseArraysExt = "SparseArrays"
 
 [[deps.CommonSubexpressions]]
 deps = ["MacroTools", "Test"]
@@ -395,9 +399,9 @@ version = "0.5.3"
 
 [[deps.IRTools]]
 deps = ["InteractiveUtils", "MacroTools", "Test"]
-git-tree-sha1 = "eac00994ce3229a464c2847e956d77a2c64ad3a5"
+git-tree-sha1 = "8aa91235360659ca7560db43a7d57541120aa31d"
 uuid = "7869d1d1-7146-5819-86e3-90919afe41df"
-version = "0.4.10"
+version = "0.4.11"
 
 [[deps.InitialValues]]
 git-tree-sha1 = "4da0f88e9a39111c2fa3add390ab15f3a44f3ca3"
@@ -480,9 +484,9 @@ version = "0.2.4"
 
 [[deps.KernelAbstractions]]
 deps = ["Adapt", "Atomix", "InteractiveUtils", "LinearAlgebra", "MacroTools", "PrecompileTools", "Requires", "SparseArrays", "StaticArrays", "UUIDs", "UnsafeAtomics", "UnsafeAtomicsLLVM"]
-git-tree-sha1 = "4c5875e4c228247e1c2b087669846941fb6e0118"
+git-tree-sha1 = "5f1ecfddb6abde48563d08b2cc7e5116ebcd6c27"
 uuid = "63c18a36-062a-441e-b654-da1e3ab1ce7c"
-version = "0.9.8"
+version = "0.9.10"
 
     [deps.KernelAbstractions.extensions]
     EnzymeExt = "EnzymeCore"
