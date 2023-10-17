@@ -1,100 +1,100 @@
-export CouplingLayerAffine, CouplingLayerAffineOptions
+export CouplingLayerAffine
 
-struct CouplingLayerAffine{T<:Real} <: NeuralNetLayer
-    CB::ConvolutionalBlock{T}
-    affine::Bool
+mutable struct CouplingLayerAffine <: InvertibleNetwork
+    CB::ConvolutionalBlock
     activation::InvertibleNetworks.ActivationFunction
     logdet::Bool
+    is_reversed::Bool
 end
 
 @Flux.functor CouplingLayerAffine
 
-struct CouplingLayerAffineOptions{T<:Real}
-    options_convblock::ConvolutionalBlockOptions{T}
-    activation::Union{Nothing,InvertibleNetworks.ActivationFunction}
-    affine::Bool
-end
+function CouplingLayerAffine(nc::Integer, nc_hidden::Integer;
+                                stencil_size::NTuple{3,Integer}=(3,1,3),
+                                padding::NTuple{3,Integer}=(1,0,1),
+                                stride::NTuple{3,Integer}=(1,1,1),
+                                do_actnorm::Bool=true,
+                                activation::Union{Nothing,InvertibleNetworks.ActivationFunction}=SigmoidLayer(; low=0.5f0, high=1f0),
+                                logdet::Bool=true,
+                                init_id::Bool=true,
+                                ndims::Integer=2)
 
-CouplingLayerAffineOptions(; options_convblock::ConvolutionalBlockOptions{T}=ConvolutionalBlockOptions(), activation::Union{Nothing,InvertibleNetworks.ActivationFunction}=SigmoidNewLayer(T(0.5)), affine::Bool=true) where T = CouplingLayerAffineOptions{T}(options_convblock, activation, affine)
-
-function CouplingLayerAffine(nc_in::Int64, nc_hidden::Int64; logdet::Bool=true, opt::CouplingLayerAffineOptions{T}=CouplingLayerAffineOptions()) where T
-
-    mod(nc_in, 2) != 0 && throw(ErrorException("Number of channel dimension should be even"))
-    nc_in_ = Int64(nc_in/2)
-    nc_out = opt.affine ? nc_in : nc_in_
-    CB = ConvolutionalBlock(nc_in_, nc_out, nc_hidden; opt=opt.options_convblock)
-    return CouplingLayerAffine{T}(CB, opt.affine, opt.activation, logdet)
+    mod(nc, 2) != 0 && throw(ArgumentError("The number of input channels must be even"))
+    CB = ConvolutionalBlock(div(nc, 2), nc_hidden, nc; stencil_size=stencil_size, padding=padding, stride=stride, do_actnorm=do_actnorm, init_zero=init_id, ndims=ndims)
+    return CouplingLayerAffine(CB, activation, logdet, false)
 
 end
 
-function forward(X::AbstractArray{T,4}, CL::CouplingLayerAffine{T}) where T
+function InvertibleNetworks.forward(X::AbstractArray{T,N}, CL::CouplingLayerAffine; logdet::Union{Nothing,Bool}=nothing, save::Bool=false) where {T,N}
+    isnothing(logdet) && (logdet = (CL.logdet && ~CL.is_reversed))
 
     X1, X2 = tensor_split(X)
     Y1 = X1
     t = CL.CB.forward(X1)
-    if CL.affine
-        logs, t = tensor_split(t)
-        s = CL.activation.forward(logs)
-        Y2 = X2.*s+t
-        CL.logdet && (lgdt = logdet(CL, s))
-    else
-        Y2 = X2+t
-        CL.logdet && (lgdt = T(0))
-    end
+    logs, t = tensor_split(t)
+    s = CL.activation.forward(logs)
+    Y2 = X2.*s+t
     Y = tensor_cat(Y1, Y2)
-    CL.logdet ? (return Y, lgdt) : (return Y)
+    save ? (return (Y, X1, X2, logs, s)) : (logdet ? (return (Y, compute_logdet(s))) : (return Y))
 
 end
 
-function inverse(Y::AbstractArray{T,4}, CL::CouplingLayerAffine{T}) where T
+function InvertibleNetworks.inverse(Y::AbstractArray{T,N}, CL::CouplingLayerAffine; logdet::Union{Nothing,Bool}=nothing, save::Bool=false) where {T,N}
+    isnothing(logdet) && (logdet = (CL.logdet && CL.is_reversed))
 
     Y1, Y2 = tensor_split(Y)
     X1 = Y1
     t = CL.CB.forward(X1)
-    if CL.affine
-        logs, t = tensor_split(t)
-        s = CL.activation.forward(logs)
-        X2 = (Y2-t)./s
-    else
-        X2 = Y2-t
-    end
-    return tensor_cat(X1, X2)
+    logs, t = tensor_split(t)
+    s = CL.activation.forward(logs)
+    X2 = (Y2-t)./s
+    X = tensor_cat(X1, X2)
+    save ? (return (X, Y1, X2, logs, s)) : (logdet ? (return (X, -compute_logdet(s))) : (return X))
 
 end
 
-function backward(ΔY::AbstractArray{T,4}, Y::AbstractArray{T,4}, CL::CouplingLayerAffine{T}) where T
+function InvertibleNetworks.backward(ΔY::AbstractArray{T,N}, Y::AbstractArray{T,N}, CL::CouplingLayerAffine; set_grad::Bool=true) where {T,N}
 
-    ΔY1, ΔY2 = tensor_split(ΔY); Y1, Y2 = tensor_split(Y)
-    ΔX1 = ΔY1; X1 = Y1
-    t = CL.CB.forward(X1)
+    X, Y1, X2, logs, s = CL.inverse(Y; save=true)
+
+    ΔY1, ΔY2 = tensor_split(ΔY)
+    ΔX2 = ΔY2.*s
+    ΔX1 = ΔY1
+    Δs = X2.*ΔY2
+    CL.logdet && (Δs .-= compute_dlogdet(s))
+    Δlogs = CL.activation.backward(Δs, nothing; X=logs)
     Δt = ΔY2
-    if CL.affine
-        logs, t = tensor_split(t)
-        s = CL.activation.forward(logs)
-        X2 = (Y2-t)./s
-        ΔX2 = ΔY2.*s
-        Δs = X2.*ΔY2
-        CL.logdet && (Δs .-= dlogdet(CL, s))
-        Δlogs = CL.activation.backward(Δs, logs)
-        ΔX1 .+= CL.CB.backward(tensor_cat(Δlogs, Δt), X1)
-    else
-        X2 = Y2-t
-        ΔX2 = ΔY2
-        ΔX1 .+= CL.CB.backward(Δt, X1)
-    end
+    ΔX1 .+= CL.CB.backward(tensor_cat(Δlogs, Δt), Y1; set_grad=set_grad)
+    ΔX = tensor_cat(ΔX1, ΔX2)
 
-    return tensor_cat(ΔX1, ΔX2), tensor_cat(X1, X2)
+    return ΔX, X
 
 end
+
+function InvertibleNetworks.backward_inv(ΔX::AbstractArray{T,N}, X::AbstractArray{T,N}, CL::CouplingLayerAffine; set_grad::Bool=true) where {T,N}
+
+    # Recompute inverse state
+    Y, X1, X2, logs, s = CL.forward(X; save=true)
+
+    # Backpropagate residual
+    ΔX1, ΔX2 = tensor_split(ΔX)
+    Δt = -ΔX2./s
+    Δs = X2.*Δt
+    Δs += compute_dlogdet(s)
+    ΔY1 = CL.CB.backward(tensor_cat(CL.activation.backward(Δs, nothing; X=logs), Δt), X1; set_grad=set_grad)+ΔX1
+    ΔY2 = -Δt
+    ΔY = tensor_cat(ΔY1, ΔY2)
+
+    return ΔY, Y
+
+end
+
 
 ## Other utils
 
-clear_grad!(CL::CouplingLayerAffine) = clear_grad!(CL.CB)
+InvertibleNetworks.get_params(CL::CouplingLayerAffine) = get_params(CL.CB)
 
-get_params(CL::CouplingLayerAffine) = get_params(CL.CB)
+compute_logdet(s::AbstractArray{T,N}) where {T,N} = sum(log.(abs.(s)))/size(s,N)
+compute_dlogdet(s::AbstractArray{T,N}) where {T,N} = 1 ./(s*size(s,N))
 
- logdet(::CouplingLayerAffine{T}, s::AbstractArray{T,4}) where T = sum(log.(abs.(s)))/size(s,4)
-dlogdet(::CouplingLayerAffine{T}, s::AbstractArray{T,4}) where T = T(1)./(s*size(s,4))
-
-gpu(CL::CouplingLayerAffine{T}) where T = CouplingLayerAffine{T}(gpu(CL.CB), CL.affine, CL.activation, CL.logdet)
-cpu(CL::CouplingLayerAffine{T}) where T = CouplingLayerAffine{T}(cpu(CL.CB), CL.affine, CL.activation, CL.logdet)
+InvertibleNetworks.tag_as_reversed!(CL::CouplingLayerAffine, tag::Bool) = (CL.is_reversed = tag; return CL)

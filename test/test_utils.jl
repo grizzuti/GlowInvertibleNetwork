@@ -1,7 +1,11 @@
 function gradient_test_input(G, loss::Function, X::AbstractArray{T}; step::T=1f-4, rtol::T=1f-3, invnet::Bool=true) where T
 
     # Computing gradients
-    hasfield(typeof(G), :logdet) ? (logdet = G.logdet) : (logdet = false)
+    if G isa InvertibleNetworks.ReversedNetwork
+        hasfield(typeof(G.I), :logdet) ? (logdet = G.logdet) : (logdet = false)
+    else
+        hasfield(typeof(G), :logdet) ? (logdet = G.logdet) : (logdet = false)
+    end
     logdet ? ((Y, _) = G.forward(X)) : (Y = G.forward(X))
     _, ΔY = loss(Y)
     invnet ? ((ΔX, _) = G.backward(ΔY, Y)) : (ΔX = G.backward(ΔY, X))
@@ -16,7 +20,7 @@ function gradient_test_input(G, loss::Function, X::AbstractArray{T}; step::T=1f-
     logdet ? ((Ym1, logdet_m1) = G.forward(X-T(0.5)*step*dX)) : (Ym1 = G.forward(X-T(0.5)*step*dX))
     lm1, _ = loss(Ym1)
     logdet && (lm1 -= logdet_m1)
-    @test (lp1-lm1)/step ≈ dot(ΔX, dX) rtol=rtol
+    @test isapprox((lp1-lm1)/step, dot(ΔX, dX); rtol=rtol)
 
 end
 
@@ -33,7 +37,11 @@ function gradient_test_pars(G, loss::Function, X::AbstractArray{T}; step::T=1e-4
     end
 
     # Computing gradients
-    hasfield(typeof(G), :logdet) ? (logdet = G.logdet) : (logdet = false)
+    if G isa InvertibleNetworks.ReversedNetwork
+        hasfield(typeof(G.I), :logdet) ? (logdet = G.logdet) : (logdet = false)
+    else
+        hasfield(typeof(G), :logdet) ? (logdet = G.logdet) : (logdet = false)
+    end
     logdet ? ((Y, _) = G.forward(X)) : (Y = G.forward(X))
     _, ΔY = loss(Y)
     invnet ? ((ΔX, _) = G.backward(ΔY, Y)) : (ΔX = G.backward(ΔY, X))
@@ -49,7 +57,7 @@ function gradient_test_pars(G, loss::Function, X::AbstractArray{T}; step::T=1e-4
     logdet ? ((Ym1, logdet_m1) = G.forward(X)) : (Ym1 = G.forward(X))
     lm1, _ = loss(Ym1)
     logdet && (lm1 -= logdet_m1)
-    @test (lp1-lm1)/step ≈ dot(Δθ, dθ) rtol=rtol
+    @test isapprox((lp1-lm1)/step, dot(Δθ, dθ); rtol=rtol)
 
 end
 

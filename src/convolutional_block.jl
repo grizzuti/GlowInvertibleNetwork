@@ -1,4 +1,4 @@
-export ConvolutionalBlock, ConvolutionalBlockOptions
+export ConvolutionalBlock
 
 struct ConvolutionalBlock <: InvertibleNetworks.NeuralNetwork
     CL1::ConvolutionalLayer
@@ -12,31 +12,22 @@ end
 
 @Flux.functor ConvolutionalBlock
 
-struct ConvolutionalBlockOptions
-    stencil_size::NTuple{3,Integer}
-    padding::NTuple{3,Integer}
-    stride::NTuple{3,Integer}
-    do_actnorm::Bool
-    init_zero::Bool
-end
+function ConvolutionalBlock(nc_in, nc_hidden, nc_out;
+                                stencil_size::NTuple{3,Integer}=(3,1,3),
+                                padding::NTuple{3,Integer}=(1,0,1),
+                                stride::NTuple{3,Integer}=(1,1,1),
+                                do_actnorm::Bool=true,
+                                init_zero::Bool=true,
+                                ndims::Integer=2)
 
-ConvolutionalBlockOptions(; stencil_size::NTuple{3,Integer}=(3,1,3),
-                            padding::NTuple{3,Integer}=(1,0,1),
-                            stride::NTuple{3,Integer}=(1,1,1),
-                            do_actnorm::Bool=true,
-                            init_zero::Bool=true) =
-    ConvolutionalBlockOptions(stencil_size, padding, stride, do_actnorm, init_zero)
+    CL1 = ConvolutionalLayer(nc_in, nc_hidden; stencil_size=stencil_size[1], padding=padding[1], stride=stride[1], bias=~do_actnorm, ndims=ndims)
+    do_actnorm ? (A1 = ActNorm(nc_hidden; logdet=false)) : (A1 = nothing)
+    CL2 = ConvolutionalLayer(nc_hidden, nc_hidden; stencil_size=stencil_size[2], padding=padding[2], stride=stride[2], bias=~do_actnorm, ndims=ndims)
+    do_actnorm ? (A2 = ActNorm(nc_hidden; logdet=false)) : (A2 = nothing)
+    CL3 = ConvolutionalLayer(nc_hidden, nc_out; stencil_size=stencil_size[3], padding=padding[3], stride=stride[3], bias=~do_actnorm, init_zero=init_zero, ndims=ndims)
+    do_actnorm ? (A3 = ActNorm(nc_hidden; logdet=false)) : (A3 = nothing)
 
-function ConvolutionalBlock(nc_in, nc_hidden, nc_out; opt::ConvolutionalBlockOptions=ConvolutionalBlockOptions(), ndims::Integer=2)
-
-    CL1 = ConvolutionalLayer(nc_in, nc_hidden; stencil_size=opt.stencil_size[1], padding=opt.padding[1], stride=opt.stride[1], bias=~opt.do_actnorm, ndims=ndims)
-    opt.do_actnorm ? (A1 = ActNorm(nc_hidden; logdet=false)) : (A1 = nothing)
-    CL2 = ConvolutionalLayer(nc_hidden, nc_hidden; stencil_size=opt.stencil_size[2], padding=opt.padding[2], stride=opt.stride[2], bias=~opt.do_actnorm, ndims=ndims)
-    opt.do_actnorm ? (A2 = ActNorm(nc_hidden; logdet=false)) : (A2 = nothing)
-    CL3 = ConvolutionalLayer(nc_hidden, nc_out; stencil_size=opt.stencil_size[3], padding=opt.padding[3], stride=opt.stride[3], bias=~opt.do_actnorm, init_zero=opt.init_zero, ndims=ndims)
-    opt.do_actnorm ? (A3 = ActNorm(nc_hidden; logdet=false)) : (A3 = nothing)
-
-    return ConvolutionalBlock(CL1, A1, CL2, A2, CL3, A3, opt.init_zero)
+    return ConvolutionalBlock(CL1, A1, CL2, A2, CL3, A3, init_zero)
 
 end
 
