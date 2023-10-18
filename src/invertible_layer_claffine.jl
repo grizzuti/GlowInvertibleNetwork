@@ -15,7 +15,7 @@ function CouplingLayerAffine(nc::Integer;
                                 padding::NTuple{3,Integer}=(1,0,1),
                                 stride::NTuple{3,Integer}=(1,1,1),
                                 do_actnorm::Bool=true,
-                                activation::Union{Nothing,InvertibleNetworks.ActivationFunction}=SigmoidLayerNew(; low=0.5f0, high=1f0),
+                                activation::Union{Nothing,InvertibleNetworks.ActivationFunction}=ExpClampLayerNew(; clamp=2),
                                 logdet::Bool=true,
                                 init_id::Bool=true,
                                 ndims::Integer=2)
@@ -31,8 +31,7 @@ function InvertibleNetworks.forward(X::AbstractArray{T,N}, CL::CouplingLayerAffi
 
     X1, X2 = tensor_split(X)
     Y1 = X1
-    t = CL.CB.forward(X1)
-    logs, t = tensor_split(t)
+    logs, t = tensor_split(CL.CB.forward(X1))
     s = CL.activation.forward(logs)
     Y2 = X2.*s+t
     Y = tensor_cat(Y1, Y2)
@@ -45,8 +44,7 @@ function InvertibleNetworks.inverse(Y::AbstractArray{T,N}, CL::CouplingLayerAffi
 
     Y1, Y2 = tensor_split(Y)
     X1 = Y1
-    t = CL.CB.forward(X1)
-    logs, t = tensor_split(t)
+    logs, t = tensor_split(CL.CB.forward(X1))
     s = CL.activation.forward(logs)
     X2 = (Y2-t)./s
     X = tensor_cat(X1, X2)
@@ -63,7 +61,7 @@ function InvertibleNetworks.backward(ΔY::AbstractArray{T,N}, Y::AbstractArray{T
     ΔX1 = ΔY1
     Δs = X2.*ΔY2
     CL.logdet && (Δs .-= compute_dlogdet(s))
-    Δlogs = CL.activation.backward(Δs, nothing; X=logs)
+    Δlogs = CL.activation.backward(Δs, logs)
     Δt = ΔY2
     ΔX1 .+= CL.CB.backward(tensor_cat(Δlogs, Δt), Y1; set_grad=set_grad)
     ΔX = tensor_cat(ΔX1, ΔX2)
@@ -82,7 +80,7 @@ function InvertibleNetworks.backward_inv(ΔX::AbstractArray{T,N}, X::AbstractArr
     Δt = -ΔX2./s
     Δs = X2.*Δt
     Δs += compute_dlogdet(s)
-    ΔY1 = CL.CB.backward(tensor_cat(CL.activation.backward(Δs, nothing; X=logs), Δt), X1; set_grad=set_grad)+ΔX1
+    ΔY1 = CL.CB.backward(tensor_cat(CL.activation.backward(Δs, logs), Δt), X1; set_grad=set_grad)+ΔX1
     ΔY2 = -Δt
     ΔY = tensor_cat(ΔY1, ΔY2)
 

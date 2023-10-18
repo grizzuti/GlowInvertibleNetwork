@@ -1,30 +1,30 @@
 using GlowInvertibleNetwork, InvertibleNetworks, LinearAlgebra, Test, Flux, Random
-device = InvertibleNetworks.CUDA.functional() ? gpu : cpu
-Random.seed!(11)
+include("./test_utils.jl")
+Random.seed!(42)
 
 # Dimensions
-n = 64
+n = 16
 nc = 4
 batchsize = 3
+clamp = 3
+
+step = 1e-6
+rtol = 1e-5
+
+device = cpu
+# device = gpu
 
 for N = 1:3
 
     # Test invertibility
-    S = SigmoidLayerNew(; low=0.5f0, high=1.1f0)
+    S = ExpClampLayerNew(; clamp=clamp)
     X = randn(Float32, n*ones(Int, N)..., nc, batchsize) |> device
     Y = randn(Float32, n*ones(Int, N)..., nc, batchsize) |> device
     @test X ≈ S.inverse(S.forward(X)) rtol=1f-6
 
     # Gradient test (input)
-    S = SigmoidLayerNew(; low=0.5, high=1.1)
+    S = ExpClampLayerNew(; clamp=clamp)
     X  = randn(Float64, n*ones(Int, N)..., nc, batchsize) |> device; X = Float64.(X)
-    ΔX = randn(Float64, n*ones(Int, N)..., nc, batchsize) |> device; ΔX *= norm(X)/norm(ΔX); ΔX = Float64.(ΔX)
-    t = 1e-6
-    Yp1 = S.forward(X+t*ΔX/2)
-    Ym1 = S.forward(X-t*ΔX/2)
-    ΔY_ = (Yp1-Ym1)/t
-    ΔY = S.backward(ΔX, X; X=X)
-
-    @test ΔY ≈ ΔY_ rtol=1e-4
+    gradient_test_input(S, X; step=step, rtol=rtol, invnet=false)
 
 end

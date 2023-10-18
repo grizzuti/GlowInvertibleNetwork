@@ -1,34 +1,31 @@
 using GlowInvertibleNetwork, InvertibleNetworks, Flux, Test, LinearAlgebra
 include("./test_utils.jl")
 
-T = Float64
-
-n = 64
+n = 16
 nc_in = 4
 nc_out = 5
 nb = 4
-k = 3
-p = 1
-s = 1
-bias = true
-init_zero = false
+step = 1e-6
+rtol = 1e-5
 
-for ndims = 1:3
+device = cpu
+# device = gpu
+
+for N = 1:3, bias = [true, false], init_zero = [false, true]
 
     # Initialize
-    N = ConvolutionalLayer(nc_in, nc_out; stencil_size=k, padding=p, stride=s, bias=bias, init_zero=init_zero, ndims=ndims) |> gpu
-    InvertibleNetworks.convert_params!(T, N)
+    CL = ConvolutionalLayer(nc_in, nc_out; stencil_size=3, padding=1, stride=1, bias=bias, init_zero=init_zero, ndims=N) |> device
+    InvertibleNetworks.convert_params!(Float64, CL)
 
-    # Eval
-    X = randn(T, n*ones(Int, ndims)..., nc_in, nb) |> gpu
-    X = convert.(T, X)
-    Y = N.forward(X)::AbstractArray{T}
+    # Zero test
+    if init_zero
+        X = randn(Float64, n*ones(Int, N)..., nc_in, nb) |> device; X = Float64.(X)
+        @test norm(CL.forward(X)) ≈ 0
+    end
 
     # Gradient test
-    loss(X::AbstractArray{T}) where T = norm(X)^2/2, X
-    step = T(1e-6)
-    rtol = T(1e-5)
-    gradient_test_input(N, loss, X; step=step, rtol=rtol, invnet=false)
-    gradient_test_pars(N, loss, X; step=step, rtol=rtol, invnet=false)
+    X = randn(Float64, n*ones(Int, N)..., nc_in, nb) |> device; X = Float64.(X)
+    gradient_test_input(CL, X; step=step, rtol=rtol, invnet=false)
+    gradient_test_pars(CL, X; step=step, rtol=rtol, invnet=false)
 
 end

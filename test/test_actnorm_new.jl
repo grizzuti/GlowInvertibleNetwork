@@ -1,17 +1,21 @@
 using GlowInvertibleNetwork, InvertibleNetworks, LinearAlgebra, Test, Flux, Random
-device = InvertibleNetworks.CUDA.functional() ? gpu : cpu
 include("./test_utils.jl")
-Random.seed!(11)
+Random.seed!(42)
 
 # Dimensions
-n = 64
+n = 16
 nc = 4
 batchsize = 3
+step = 1e-6
+rtol = 1e-5
 
-for N = 1:3, do_reverse = [false, true]
+device = cpu
+# device = gpu
+
+for N = 1:3, do_reverse = [false, true], init_id = [false, true]
 
     # Test invertibility
-    AN = ActNormNew(nc; logdet=true, init_id=false) |> device
+    AN = ActNormNew(; logdet=true, init_id=init_id) |> device
     X = randn(Float32, n*ones(Int, N)..., nc, batchsize) |> device
     AN.forward(X)
     do_reverse && (AN = reverse(AN))
@@ -20,6 +24,11 @@ for N = 1:3, do_reverse = [false, true]
     @test X ≈ AN.inverse(AN.forward(X)[1]) rtol=1f-6
     @test Y ≈ AN.forward(AN.inverse(Y))[1] rtol=1f-6
 
+    # Identity test
+    if init_id
+        X = randn(Float32, n*ones(Int, N)..., nc, batchsize) |> device
+        @test AN.forward(X)[1] ≈ X
+    end
 
     # Test backward/inverse coherence
     ΔY = randn(Float32, n*ones(Int, N)..., nc, batchsize) |> device
@@ -28,29 +37,24 @@ for N = 1:3, do_reverse = [false, true]
     _, X = AN.backward(ΔY, Y)
     @test X ≈ X_ rtol=1f-6
 
-
     # Gradient test (input)
-    AN = ActNormNew(nc; logdet=true, init_id=false) |> device
+    AN = ActNormNew(; logdet=true, init_id=init_id) |> device
     X = randn(Float32, n*ones(Int, N)..., nc, batchsize) |> device
     AN.forward(X)
     do_reverse && (AN = reverse(AN))
-    θ = get_params(AN); for i = eachindex(θ) ~isnothing(θ[i].data) && (θ[i].data = Float64.(θ[i].data)); end
+    InvertibleNetworks.convert_params!(Float64, AN)
     ΔY = randn(Float32, n*ones(Int, N)..., nc, batchsize) |> device; ΔY = Float64.(ΔY)
     ΔX = randn(Float32, n*ones(Int, N)..., nc, batchsize) |> device; ΔX = Float64.(ΔX)
     X = randn(Float32, n*ones(Int, N)..., nc, batchsize) |> device; X = Float64.(X)
-    loss(X::AbstractArray{T}) where T = norm(X)^2/2, X
-    step = 1e-7
-    rtol = 1e-3
-    gradient_test_input(AN, loss, X; step=step, rtol=rtol, invnet=true)
-
+    gradient_test_input(AN, X; step=step, rtol=rtol, invnet=true)
 
     # Gradient test (parameters)    
-    AN = ActNormNew(nc; logdet=true, init_id=false) |> device
+    AN = ActNormNew(; logdet=true, init_id=init_id) |> device
     X = randn(Float32, n*ones(Int, N)..., nc, batchsize) |> device
     AN.forward(X)
-    do_reverse && (AN = reverse(AN))
-    θ = get_params(AN); for i = eachindex(θ) ~isnothing(θ[i].data) && (θ[i].data = Float64.(θ[i].data)); end
+    do_reverse && (AN = reverse(AN))    
+    InvertibleNetworks.convert_params!(Float64, AN)
     X = randn(Float32, n*ones(Int, N)..., nc, batchsize) |> device; X = Float64.(X)
-    gradient_test_pars(AN, loss, X; step=step, rtol=rtol, invnet=true)
+    gradient_test_pars(AN, X; step=step, rtol=rtol, invnet=true)
 
 end

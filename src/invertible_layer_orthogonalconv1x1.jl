@@ -24,9 +24,9 @@ end
 
 # Constructor
 
-function OrthogonalConv1x1(nc::Integer; logdet::Bool=true, id_init::Bool=false, niter_expder::Union{Nothing,Integer}=nothing, tol_expder::Union{Nothing,Real}=nothing)
+function OrthogonalConv1x1(nc::Integer; logdet::Bool=true, init_id::Bool=false, niter_expder::Union{Nothing,Integer}=nothing, tol_expder::Union{Nothing,Real}=nothing)
 
-    id_init ? (stencil_pars = vec2par(zeros(Float32, div(nc*(nc-1), 2)), (div(nc*(nc-1), 2), ))) :
+    init_id ? (stencil_pars = vec2par(zeros(Float32, div(nc*(nc-1), 2)), (div(nc*(nc-1), 2), ))) :
               (stencil_pars = vec2par(glorot_uniform(div(nc*(nc-1), 2)), (div(nc*(nc-1), 2), )))
     pars2mat_idx = InvertibleNetworks._skew_symmetric_indices(nc)
     return OrthogonalConv1x1(stencil_pars, pars2mat_idx, nc, nothing,
@@ -81,7 +81,7 @@ function InvertibleNetworks.backward(ΔY::AbstractArray{T,N}, Y::AbstractArray{T
         Δstencil = reshape(∇conv_filter(X, ΔY, cdims), C.nc, C.nc)
         ΔA = InvertibleNetworks._Frechet_derivative_exponential(C.log_mat', Δstencil; niter=C.niter_expder, tol=isnothing(C.tol_expder) ? nothing : T(C.tol_expder))
         Δstencil_pars = ΔA[C.pars2mat_idx[1]]-ΔA[C.pars2mat_idx[2]]
-        isnothing(C.stencil_pars.grad) ? (C.stencil_pars.grad = Δstencil_pars) : (C.stencil_pars.grad .= Δstencil_pars)
+        C.stencil_pars.grad = Δstencil_pars
         C.stencil = nothing
     end
 
@@ -104,17 +104,12 @@ function InvertibleNetworks.backward_inv(ΔX::AbstractArray{T,N}, X::AbstractArr
         Δstencil = reshape(∇conv_filter(X, ΔY, cdims), C.nc, C.nc)
         ΔA = InvertibleNetworks._Frechet_derivative_exponential(C.log_mat', Δstencil; niter=C.niter_expder, tol=isnothing(C.tol_expder) ? nothing : T(C.tol_expder))
         Δstencil_pars = ΔA[C.pars2mat_idx[1]]-ΔA[C.pars2mat_idx[2]]
-        isnothing(C.stencil_pars.grad) ? (C.stencil_pars.grad = -Δstencil_pars) : (C.stencil_pars.grad .= -Δstencil_pars)
+        C.stencil_pars.grad = -Δstencil_pars
         C.stencil = nothing
     end
 
     return ΔY, Y
 
-end
-
-function InvertibleNetworks.set_params!(C::OrthogonalConv1x1, θ::AbstractVector{<:Parameter})
-    (length(θ) != 1) && throw(ArgumentError("Parameter not compatible"))
-    C.stencil_pars = θ[1]; C.stencil = nothing
 end
 
 
@@ -132,3 +127,8 @@ _mat2stencil(A::AbstractMatrix, ndims::Integer) = reshape(A, Tuple(ones(Int, ndi
 # Other
 
 InvertibleNetworks.tag_as_reversed!(C::OrthogonalConv1x1, tag::Bool) = (C.is_reversed = tag; return C)
+
+function InvertibleNetworks.set_params!(C::OrthogonalConv1x1, θ::AbstractVector{<:Parameter})
+    (length(θ) != 1) && throw(ArgumentError("Parameter not compatible"))
+    C.stencil_pars = θ[1]; C.stencil = nothing
+end

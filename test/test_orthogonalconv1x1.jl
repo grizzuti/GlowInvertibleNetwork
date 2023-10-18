@@ -1,58 +1,52 @@
 using GlowInvertibleNetwork, InvertibleNetworks, LinearAlgebra, Test, Flux, Random
-device = InvertibleNetworks.CUDA.functional() ? gpu : cpu
-Random.seed!(11)
+include("./test_utils.jl")
+Random.seed!(42)
 
 # Dimensions
-n = 64
+n = 16
 nc = 4
 batchsize = 3
+step = 1e-6
+rtol = 1e-5
 
-for N = 1:3, do_reverse = [false, true]
+device = cpu
+# device = gpu
+
+for N = 1:3, do_reverse = [false, true], init_id = [false, true]
 
     # Test invertibility
-    C = OrthogonalConv1x1(nc; logdet=true) |> device; do_reverse && (C = reverse(C))
+    Q = OrthogonalConv1x1(nc; logdet=true, init_id=init_id) |> device; do_reverse && (Q = reverse(Q))
     X = randn(Float32, n*ones(Int, N)..., nc, batchsize) |> device
     Y = randn(Float32, n*ones(Int, N)..., nc, batchsize) |> device
-    @test X ≈ C.inverse(C.forward(X)[1]) rtol=1f-6
-    @test Y ≈ C.forward(C.inverse(Y))[1] rtol=1f-6
+    @test X ≈ Q.inverse(Q.forward(X)[1]) rtol=1f-6
+    @test Y ≈ Q.forward(Q.inverse(Y))[1] rtol=1f-6
 
+    # Identity test
+    if init_id
+        X = randn(Float32, n*ones(Int, N)..., nc, batchsize) |> device
+        @test Q.forward(X)[1] ≈ X
+    end
 
     # Test backward/inverse coherence
     ΔY = randn(Float32, n*ones(Int, N)..., nc, batchsize) |> device
     Y  = randn(Float32, n*ones(Int, N)..., nc, batchsize) |> device
-    X_ = C.inverse(Y)
-    _, X = C.backward(ΔY, Y)
+    X_ = Q.inverse(Y)
+    _, X = Q.backward(ΔY, Y)
     @test X ≈ X_ rtol=1f-6
 
-
     # Gradient test (input)
-    ΔY = randn(Float32, n*ones(Int, N)..., nc, batchsize) |> device
-    ΔX = randn(Float32, n*ones(Int, N)..., nc, batchsize) |> device
-    X  = randn(Float32, n*ones(Int, N)..., nc, batchsize) |> device
-    Y = C.forward(X)[1]
-    ΔX_, _ = C.backward(ΔY, Y)
-    @test dot(ΔX, ΔX_) ≈ dot(C.forward(ΔX)[1], ΔY) rtol=1f-4
-
+    Q = OrthogonalConv1x1(nc; logdet=true, init_id=init_id) |> device; do_reverse && (Q = reverse(Q))
+    InvertibleNetworks.convert_params!(Float64, Q)
+    X  = randn(Float32, n*ones(Int, N)..., nc, batchsize) |> device; X = Float64.(X)
+    Y = randn(Float32, n*ones(Int, N)..., nc, batchsize) |> device; Y = Float64.(Y)
+    loss(X) = (norm(X-Y)^2/2, X-Y)
+    gradient_test_input(Q, X; loss=loss, step=step, rtol=rtol, invnet=true)
 
     # Gradient test (parameters)
-    C = OrthogonalConv1x1(nc; logdet=true) |> device; do_reverse && (C = reverse(C))
-    C.stencil_pars.data = Float64.(C.stencil_pars.data)
-    X  = randn(T, n*ones(Int, N)..., nc, batchsize) |> device; X = Float64.(X)
-    ΔY_ = randn(T, n*ones(Int, N)..., nc, batchsize) |> device; ΔY_ = Float64.(ΔY_)
-    θ = copy(C.stencil_pars.data)
-    Δθ = randn(T, size(θ)) |> device; Δθ = Float64.(Δθ); Δθ *= norm(θ)/norm(Δθ)
-
-    t = Float64(1e-5)
-    set_params!(C, [Parameter(θ+t*Δθ/2)])
-    Yp1 = C.forward(X)[1]
-    set_params!(C, [Parameter(θ-t*Δθ/2)])
-    Ym1 = C.forward(X)[1]
-    ΔY = (Yp1-Ym1)/t
-    set_params!(C, [Parameter(θ)])
-    Y = C.forward(X)[1]
-    C.backward(ΔY_, Y)
-    Δθ_ = C.stencil_pars.grad
-
-    @test dot(ΔY, ΔY_) ≈ dot(Δθ, Δθ_) rtol=Float64(1e-4)
+    Q = OrthogonalConv1x1(nc; logdet=true, init_id=init_id) |> device; do_reverse && (Q = reverse(Q))
+    InvertibleNetworks.convert_params!(Float64, Q)
+    X = randn(Float32, n*ones(Int, N)..., nc, batchsize) |> device; X = Float64.(X)
+    Y = randn(Float32, n*ones(Int, N)..., nc, batchsize) |> device; Y = Float64.(Y)
+    gradient_test_pars(Q, X; loss=loss, step=step, rtol=rtol, invnet=true)
 
 end
