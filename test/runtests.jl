@@ -7,5 +7,6 @@ using GlowInvertibleNetwork, Test
     include("./test_convolutional_block.jl")
     include("./test_orthogonalconv1x1.jl")
     include("./test_claffine.jl")
-    include("./test_layer_flowstep.jl")
+    include("./test_flowstep.jl")
+    include("./test_glow.jl")
 end

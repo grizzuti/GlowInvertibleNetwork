@@ -12,15 +12,11 @@ end
 
 function FlowStep(nc::Integer;
                     nc_hidden::Integer=nc,
-                    stencil_size::NTuple{3,Integer}=(3,1,3),
-                    padding::NTuple{3,Integer}=(1,0,1),
-                    stride::NTuple{3,Integer}=(1,1,1),
+                    stencil_size::NTuple{3,Integer}=(3,1,3), padding::NTuple{3,Integer}=(1,0,1), stride::NTuple{3,Integer}=(1,1,1),
                     do_actnorm::Bool=true,
                     activation::Union{Nothing,InvertibleNetworks.ActivationFunction}=ExpClampLayerNew(; clamp=2),
                     logdet::Bool=true,
-                    init_id_an::Bool=false,
-                    init_id_q::Bool=false,
-                    init_id_cl::Bool=true,
+                    init_id_an::Bool=false, init_id_q::Bool=false, init_id_cl::Bool=true,
                     ndims::Integer=2)
 
     AN = ActNormNew(; logdet=logdet, init_id=init_id_an)
@@ -68,7 +64,9 @@ function InvertibleNetworks.backward_inv(ΔX::AbstractArray{T,N}, X::AbstractArr
 
 end
 
-# InvertibleNetworks.tag_as_reversed!(FS::FlowStep, tag::Bool) = (FS.is_reversed = tag; return FS)
+
+# Other utils
+
 function InvertibleNetworks.tag_as_reversed!(FS::FlowStep, tag::Bool)
     InvertibleNetworks.tag_as_reversed!(FS.AN, tag)
     InvertibleNetworks.tag_as_reversed!(FS.Q, tag)
@@ -78,6 +76,6 @@ function InvertibleNetworks.tag_as_reversed!(FS::FlowStep, tag::Bool)
 end
 
 function InvertibleNetworks.set_params!(FS::FlowStep, θ::AbstractVector{<:Parameter})
-    FS.Q.stencil = nothing
     set_params!(get_params(FS), θ)
+    FS.Q.stencil = nothing
 end
