@@ -2,69 +2,57 @@
 # Train generator on MRI images
 #################################################################################
 
-using LinearAlgebra, InvertibleNetworks, PyPlot, Flux, CUDA, JLD, GlowInvertibleNetwork, Random
+using LinearAlgebra, InvertibleNetworks, PyPlot, Flux, ParameterSchedulers, CUDA, JLD, GlowInvertibleNetwork, Random
 import Flux.Optimise: Optimiser, ADAM, ExpDecay, ClipNorm, update!
+import ParameterSchedulers: Scheduler
 include("./plotting_utils.jl")
 
 
 # Load data
-nx,ny = 256,256
-data_filename = string("./data/AOMIC_data",nx,"x",ny,".jld")
-X = reshape(Float32.(load(data_filename)["data"]), nx,ny,1,:)
-ntrain = size(X,4)
+nx, ny = 64, 64
+# nx, ny = 256, 256
+data_filename = string("./data/AOMIC_data", nx, "x", ny, ".jld")
+X = reshape(Float32.(load(data_filename)["data"]), nx, ny, 1, :)
+ntrain = size(X, 4)
 
 # Setting/loading intermediate/final saves
 save_folder = "./results/MRIgen/"
-save_intermediate_filename = string(save_folder, "results_gen_intermediate_",nx,"x",ny,".jld")
-save_filename = string(save_folder, "results_gen_",nx,"x",ny,".jld")
+save_intermediate_filename = string(save_folder, "results_gen_intermediate_", nx, "x", ny, ".jld")
+save_filename = string(save_folder, "results_gen_", nx, "x", ny, ".jld")
 
 # Create multiscale network
-opt = GlowOptions(; cl_activation=SigmoidNewLayer(0.5f0),
-                    cl_affine=true,
-                    init_cl_id=true,
-                    conv1x1_nvp=false,
-                    init_conv1x1_permutation=true,
-                    conv1x1_orth_fixed=true,
-                    T=Float32)
 nc = 1
 nc_hidden = 512
 depth = 5
-nscales = 7
-G = Glow(nc, nc_hidden, depth, nscales; opt=opt) |> gpu
+scales = 6
+G = Glow(nc; nc_hidden=nc_hidden, init_id_cl=true, depth, scales, logdet=true, initial_squeeze=true, ndims=2) |> gpu
 
 # Set loss function
-loss(X::AbstractArray{T,4}) where T = T(0.5)*norm(X)^2/size(X,4), X/size(X,4)
+loss(X) = norm(X)^2/(2*size(X,4)), X/size(X,4)
 
 # Artificial data noise parameters
-α = 0.1f0
-β = 0.5f0
-αmin = 0.01f0
+σ_noise = 1f-3
 
 # Setting optimizer options
 batch_size = 2^2
-nbatches = Int64(ntrain/batch_size)
+nbatches = Int(ntrain/batch_size)
 nepochs = 2^9
 lr = 1f-4
-lr_min = lr*1f-2
-decay_rate = exp(log(lr_min/lr)/(nepochs*nbatches))
-λ = 1f-3
-opt = Optimiser(ExpDecay(lr, decay_rate, 1, lr_min), ADAM(lr))
+lr_sched = CosAnneal(; λ0=lr, λ1=1f-2*lr, period=nepochs*nbatches)
+opt = Scheduler(lr_sched, ADAM(lr))
 intermediate_save = 1
 
 # Training
-G.forward(gpu(X[:,:,:,randperm(ntrain)[1:batch_size]])) # to initialize actnorm
+G.forward(gpu(X[:, :, :, randperm(ntrain)[1:batch_size]])) # to initialize actnorm
 θ = get_params(G)
 θ_backup = deepcopy(θ)
 floss = zeros(Float32, nbatches, nepochs)
 floss_full = zeros(Float32, nbatches, nepochs)
-Ztest = randn(Float32, nx,ny,1,batch_size)
+Ztest = randn(Float32, nx, ny, 1, batch_size)
 for e = 1:nepochs # epoch loop
 
     # Select random data traversal for current epoch
     idx_e = reshape(randperm(ntrain), batch_size, nbatches)
-
-    # Epoch-adaptive regularization weight
-    λ_adaptive = λ*nx*ny/norm(θ_backup)^2
 
     for b = 1:nbatches # batch loop
 
@@ -72,8 +60,7 @@ for e = 1:nepochs # epoch loop
         Xb = X[:,:,:,idx_e[:,b]] |> gpu
 
         # Artificial noise
-        noise_lvl = α/((e-1)*nbatches+b)^β+αmin
-        Xb .+= noise_lvl*CUDA.randn(Float32, size(Xb))
+        Xb .+= σ_noise*CUDA.randn(Float32, size(Xb))
 
         # Evaluate network
         Zb, lgdt = G.forward(Xb)
@@ -86,22 +73,12 @@ for e = 1:nepochs # epoch loop
         G.backward(ΔZb, Zb)
 
         # Update params + regularization
-        for i =1:length(θ)
-            Δθ = θ[i].data-θ_backup[i].data
-            update!(opt, θ[i].data, θ[i].grad+λ_adaptive*Δθ)
-            floss_full[b,e] += 0.5f0*λ_adaptive*norm(Δθ)^2
-            (b == nbatches) && (θ_backup[i].data .= θ[i].data)
+        for i = eachindex(θ)
+            update!(opt, θ[i].data, θ[i].grad)
         end
 
         # Print current iteration
         print("Iter: epoch=", e, "/", nepochs, ", batch=", b, "/", nbatches, "; f_full = ", floss_full[b,e], "; f_z = ", floss[b,e], "\n")
-
-        # Check instability status
-        if isnan(floss_full[b,e]) || isinf(floss_full[b,e])
-            set_params!(G, θ_backup)
-            save(save_intermediate_filename, "theta", cpu(θ), "floss_full", floss_full, "floss", floss)
-            throw("NaN or Inf values!\n")
-        end
 
     end # end batch loop
 
